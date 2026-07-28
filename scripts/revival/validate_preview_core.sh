@@ -33,4 +33,12 @@ VIS_OUTPUT="${TMPDIR:-/tmp}/pfhorge-preview-visibility-smoke"
 "$VIS_OUTPUT"
 rm -f "$VIS_OUTPUT"
 
+
+PORTAL_SOURCE="$ROOT/Pfhorge Source/Preview/Tests/PreviewPortalClippingSmoke.cpp"
+PORTAL_OUTPUT="${TMPDIR:-/tmp}/pfhorge-preview-portal-clipping-smoke"
+
+"$CXX" -std=c++17 -Wall -Wextra -Wpedantic -Werror "$PORTAL_SOURCE" -o "$PORTAL_OUTPUT"
+"$PORTAL_OUTPUT"
+rm -f "$PORTAL_OUTPUT"
+
 echo "preview core smoke test passed"

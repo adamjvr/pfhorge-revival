@@ -93,7 +93,7 @@
             self.window.title =
                 [self.window.title
                     stringByAppendingString:
-                    @" — Metal Preview VM-2"];
+                    @" — Metal Portal Preview VM-3"];
 
             [self.window makeFirstResponder:metalView];
             return;

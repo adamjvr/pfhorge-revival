@@ -6,6 +6,7 @@
 #ifdef __OBJC__
 
 #import "LELevelData.h"
+#import "LELine.h"
 #import "LEMapPoint.h"
 #import "LEPolygon.h"
 
@@ -52,7 +53,9 @@ inline void appendTriangleFan(
         return;
     }
 
-    for (std::uint32_t index = 1U; index + 1U < vertexCount; ++index) {
+    for (std::uint32_t index = 1U;
+         index + 1U < vertexCount;
+         ++index) {
         surface.indices.push_back(0U);
 
         if (reverseWinding) {
@@ -65,24 +68,112 @@ inline void appendTriangleFan(
     }
 }
 
+inline void appendWallSegment(
+    PreviewScene& scene,
+    StableID polygonID,
+    std::uint16_t edgeIndex,
+    std::uint16_t segmentIndex,
+    LEMapPoint *first,
+    LEMapPoint *second,
+    short lowerHeight,
+    short upperHeight)
+{
+    if (first == nil ||
+        second == nil ||
+        upperHeight <= lowerHeight) {
+        return;
+    }
+
+    PreviewSurface wall;
+    wall.id = SurfaceID{
+        SurfaceKind::Wall,
+        polygonID,
+        static_cast<std::uint16_t>(
+            edgeIndex * 3U + segmentIndex),
+    };
+    wall.polygonID = polygonID;
+    wall.vertices = {
+        PreviewVertex{
+            pointAtHeight(first, lowerHeight),
+            Vec2{0.0F, 0.0F},
+            1.0F,
+        },
+        PreviewVertex{
+            pointAtHeight(second, lowerHeight),
+            Vec2{1.0F, 0.0F},
+            1.0F,
+        },
+        PreviewVertex{
+            pointAtHeight(second, upperHeight),
+            Vec2{1.0F, 1.0F},
+            1.0F,
+        },
+        PreviewVertex{
+            pointAtHeight(first, upperHeight),
+            Vec2{0.0F, 1.0F},
+            1.0F,
+        },
+    };
+    wall.indices = {
+        0U, 1U, 2U,
+        0U, 2U, 3U,
+    };
+
+    scene.surfaces.push_back(std::move(wall));
+}
+
+[[nodiscard]] inline bool lineIsTransparent(
+    LELine *line) noexcept
+{
+    return line != nil &&
+           (line.flags & LELineTransparent) != 0;
+}
+
+[[nodiscard]] inline StableID validAdjacentPolygonID(
+    LEPolygon *polygon,
+    NSUInteger edgeIndex,
+    NSArray<LEPolygon *> *polygons) noexcept
+{
+    if (polygon == nil ||
+        edgeIndex >= static_cast<NSUInteger>(
+            std::max<short>(0, polygon.getTheVertexCount))) {
+        return kInvalidPreviewID;
+    }
+
+    LELine *line =
+        [polygon lineObjectAtIndex:
+            static_cast<short>(edgeIndex)];
+
+    if (!lineIsTransparent(line)) {
+        return kInvalidPreviewID;
+    }
+
+    const short adjacentIndex =
+        [polygon adjacentPolygonIndexesAtIndex:
+            static_cast<short>(edgeIndex)];
+
+    if (adjacentIndex < 0 ||
+        static_cast<NSUInteger>(adjacentIndex) >= polygons.count) {
+        return kInvalidPreviewID;
+    }
+
+    return static_cast<StableID>(adjacentIndex);
+}
+
 }  // namespace detail
 
 /**
- * Build the first immutable rendering snapshot from the live Objective-C model.
+ * Builds an immutable renderer snapshot from the live Objective-C map model.
  *
- * VM-2 deliberately emits every polygon without portal clipping. That is useful
- * for validating the Metal/AppKit integration and map-to-scene conversion.
- * Marathon portal visibility replaces this whole-level emission in VM-3.
- *
- * Concave polygons are still emitted as triangle fans in this prototype. They
- * are therefore diagnostic-only until the surface builder gains the verified
- * Marathon clipping/triangulation path.
+ * VM-3 records directed transparent portals and splits each source polygon's
+ * boundary into lower wall, portal opening, and upper wall regions. Renderer
+ * code never retains Objective-C map pointers.
  */
 [[nodiscard]] inline PreviewScene BuildPreviewScene(
     LELevelData *levelData)
 {
     PreviewScene scene;
-    scene.revision = 1U;
+    scene.revision = 2U;
 
     if (levelData == nil) {
         return scene;
@@ -93,9 +184,11 @@ inline void appendTriangleFan(
 
     for (LEMapPoint *point in points) {
         scene.endpoints.push_back(Vec3{
-            static_cast<float>(point.x) * detail::kWorldUnitScale,
+            static_cast<float>(point.x) *
+                detail::kWorldUnitScale,
             0.0F,
-            -static_cast<float>(point.y) * detail::kWorldUnitScale,
+            -static_cast<float>(point.y) *
+                detail::kWorldUnitScale,
         });
     }
 
@@ -106,12 +199,14 @@ inline void appendTriangleFan(
          polygonIndex < polygons.count;
          ++polygonIndex) {
         LEPolygon *polygon = polygons[polygonIndex];
-        NSArray<LEMapPoint *> *vertices = polygon.vertexArray;
+        NSArray<LEMapPoint *> *vertices =
+            polygon.vertexArray;
 
         const NSUInteger requestedCount =
-            static_cast<NSUInteger>(std::max<short>(
-                0,
-                polygon.getTheVertexCount));
+            static_cast<NSUInteger>(
+                std::max<short>(
+                    0,
+                    polygon.getTheVertexCount));
         const NSUInteger vertexCount =
             std::min(vertices.count, requestedCount);
 
@@ -131,6 +226,7 @@ inline void appendTriangleFan(
             static_cast<float>(polygon.ceilingHeight) *
             detail::kWorldUnitScale;
         previewPolygon.endpointIDs.reserve(vertexCount);
+        previewPolygon.adjacentPolygonIDs.reserve(vertexCount);
 
         for (NSUInteger vertexIndex = 0U;
              vertexIndex < vertexCount;
@@ -142,10 +238,17 @@ inline void appendTriangleFan(
             previewPolygon.endpointIDs.push_back(
                 endpointIndex == NSNotFound
                     ? kInvalidPreviewID
-                    : static_cast<StableID>(endpointIndex));
+                    : static_cast<StableID>(
+                        endpointIndex));
+
+            previewPolygon.adjacentPolygonIDs.push_back(
+                detail::validAdjacentPolygonID(
+                    polygon,
+                    vertexIndex,
+                    polygons));
         }
 
-        scene.polygons.push_back(std::move(previewPolygon));
+        scene.polygons.push_back(previewPolygon);
 
         PreviewSurface floor;
         floor.id = SurfaceID{
@@ -156,9 +259,12 @@ inline void appendTriangleFan(
         floor.polygonID = stablePolygonID;
         floor.texture.collection =
             polygon.floorTextureCollectionOnly;
-        floor.texture.bitmap = polygon.floorTextureOnly;
-        floor.texture.transferMode = polygon.floorTransferMode;
-        floor.lightIndex = polygon.floorLightsourceIndex;
+        floor.texture.bitmap =
+            polygon.floorTextureOnly;
+        floor.texture.transferMode =
+            polygon.floorTransferMode;
+        floor.lightIndex =
+            polygon.floorLightsourceIndex;
         floor.vertices.reserve(vertexCount);
 
         PreviewSurface ceiling;
@@ -170,10 +276,12 @@ inline void appendTriangleFan(
         ceiling.polygonID = stablePolygonID;
         ceiling.texture.collection =
             polygon.ceilingTextureCollectionOnly;
-        ceiling.texture.bitmap = polygon.ceilingTextureOnly;
+        ceiling.texture.bitmap =
+            polygon.ceilingTextureOnly;
         ceiling.texture.transferMode =
             polygon.ceilingTransferMode;
-        ceiling.lightIndex = polygon.ceilingLightsourceIndex;
+        ceiling.lightIndex =
+            polygon.ceilingLightsourceIndex;
         ceiling.vertices.reserve(vertexCount);
 
         for (NSUInteger vertexIndex = 0U;
@@ -214,50 +322,77 @@ inline void appendTriangleFan(
 
             LEMapPoint *first = vertices[edgeIndex];
             LEMapPoint *second = vertices[nextIndex];
+            const StableID adjacentID =
+                previewPolygon.adjacentPolygonIDs[edgeIndex];
 
-            PreviewSurface wall;
-            wall.id = SurfaceID{
-                SurfaceKind::Wall,
+            if (adjacentID == kInvalidPreviewID ||
+                adjacentID >= polygons.count) {
+                detail::appendWallSegment(
+                    scene,
+                    stablePolygonID,
+                    static_cast<std::uint16_t>(edgeIndex),
+                    0U,
+                    first,
+                    second,
+                    polygon.floorHeight,
+                    polygon.ceilingHeight);
+                continue;
+            }
+
+            LEPolygon *adjacentPolygon =
+                polygons[static_cast<NSUInteger>(adjacentID)];
+
+            const short openingBottom =
+                std::max(
+                    polygon.floorHeight,
+                    adjacentPolygon.floorHeight);
+            const short openingTop =
+                std::min(
+                    polygon.ceilingHeight,
+                    adjacentPolygon.ceilingHeight);
+
+            if (openingTop <= openingBottom) {
+                detail::appendWallSegment(
+                    scene,
+                    stablePolygonID,
+                    static_cast<std::uint16_t>(edgeIndex),
+                    0U,
+                    first,
+                    second,
+                    polygon.floorHeight,
+                    polygon.ceilingHeight);
+                continue;
+            }
+
+            scene.portals.push_back(PreviewPortal{
+                stablePolygonID,
+                adjacentID,
+                static_cast<std::uint16_t>(edgeIndex),
+                detail::pointAtHeight(first, openingBottom),
+                detail::pointAtHeight(second, openingBottom),
+                detail::pointAtHeight(second, openingTop),
+                detail::pointAtHeight(first, openingTop),
+            });
+
+            detail::appendWallSegment(
+                scene,
                 stablePolygonID,
                 static_cast<std::uint16_t>(edgeIndex),
-            };
-            wall.polygonID = stablePolygonID;
-            wall.vertices = {
-                PreviewVertex{
-                    detail::pointAtHeight(
-                        first,
-                        polygon.floorHeight),
-                    Vec2{0.0F, 0.0F},
-                    1.0F,
-                },
-                PreviewVertex{
-                    detail::pointAtHeight(
-                        second,
-                        polygon.floorHeight),
-                    Vec2{1.0F, 0.0F},
-                    1.0F,
-                },
-                PreviewVertex{
-                    detail::pointAtHeight(
-                        second,
-                        polygon.ceilingHeight),
-                    Vec2{1.0F, 1.0F},
-                    1.0F,
-                },
-                PreviewVertex{
-                    detail::pointAtHeight(
-                        first,
-                        polygon.ceilingHeight),
-                    Vec2{0.0F, 1.0F},
-                    1.0F,
-                },
-            };
-            wall.indices = {
-                0U, 1U, 2U,
-                0U, 2U, 3U,
-            };
+                0U,
+                first,
+                second,
+                polygon.floorHeight,
+                openingBottom);
 
-            scene.surfaces.push_back(std::move(wall));
+            detail::appendWallSegment(
+                scene,
+                stablePolygonID,
+                static_cast<std::uint16_t>(edgeIndex),
+                2U,
+                first,
+                second,
+                openingTop,
+                polygon.ceilingHeight);
         }
     }
 

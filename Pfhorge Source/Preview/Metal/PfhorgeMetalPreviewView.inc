@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Adam Vadala-Roth
 //
 // This implementation is included once by MyOpenGLView2.mm through
-// MyOpenGLView2.h. Keeping VM-2 in an include file avoids a risky Xcode project
+// MyOpenGLView2.h. Keeping VM-3 in an include file avoids a risky Xcode project
 // rewrite while the modern preview target structure is still being established.
 
 #import <Metal/Metal.h>
@@ -10,6 +10,7 @@
 #import <simd/simd.h>
 
 #include "../Core/PreviewSceneBuilder.hpp"
+#include "../Core/PreviewVisibility.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -205,9 +206,25 @@ fragment float4 pfhorgePreviewFragment(
 
 }  // namespace
 
+@interface PfhorgeMetalPreviewView ()
+
+- (simd_float3)portalForwardVector;
+- (void)rebuildPreviewFrame;
+- (void)positionPortalCameraInsideFirstPolygon;
+- (void)rebuildVertexBuffer;
+- (void)resetCamera;
+- (matrix_float4x4)viewProjectionMatrix;
+
+@end
+
 @implementation PfhorgeMetalPreviewView {
     PreviewScene _previewScene;
+    pfhorge::preview::PreviewFrame _previewFrame;
     std::vector<MetalPreviewVertex> _metalVertices;
+
+    BOOL _portalModeEnabled;
+    simd_float3 _portalCameraPosition;
+    float _portalMoveSpeed;
 
     id<MTLCommandQueue> _commandQueue;
     id<MTLRenderPipelineState> _pipelineState;
@@ -261,13 +278,15 @@ fragment float4 pfhorgePreviewFragment(
 
     _previewScene =
         pfhorge::preview::BuildPreviewScene(levelData);
-    [self rebuildVertexBuffer];
+    _portalModeEnabled = YES;
+    _portalMoveSpeed = 0.15F;
     [self resetCamera];
 
     NSLog(
-        @"Metal Visual Mode VM-2: %zu polygons, "
-         "%zu surfaces, %zu rendered vertices",
+        @"Metal Visual Mode VM-3: %zu polygons, "
+         "%zu portals, %zu surfaces, %zu rendered vertices",
         _previewScene.polygons.size(),
+        _previewScene.portals.size(),
         _previewScene.surfaces.size(),
         _metalVertices.size());
 
@@ -307,7 +326,7 @@ fragment float4 pfhorgePreviewFragment(
     MTLRenderPipelineDescriptor *pipelineDescriptor =
         [[MTLRenderPipelineDescriptor alloc] init];
     pipelineDescriptor.label =
-        @"Pfhorge VM-2 Untextured Geometry";
+        @"Pfhorge VM-3 Untextured Geometry";
     pipelineDescriptor.vertexFunction = vertexFunction;
     pipelineDescriptor.fragmentFunction = fragmentFunction;
     pipelineDescriptor.colorAttachments[0].pixelFormat =
@@ -342,21 +361,140 @@ fragment float4 pfhorgePreviewFragment(
     return _depthStencilState != nil;
 }
 
+
+- (simd_float3)portalForwardVector
+{
+    const float cosPitch = std::cos(_cameraPitch);
+
+    simd_float3 forward =
+        simd_make_float3(
+            std::sin(_cameraYaw) * cosPitch,
+            std::sin(_cameraPitch),
+            -std::cos(_cameraYaw) * cosPitch);
+
+    if (simd_length_squared(forward) < 0.000001F) {
+        return simd_make_float3(0.0F, 0.0F, -1.0F);
+    }
+
+    return simd_normalize(forward);
+}
+
+- (void)rebuildPreviewFrame
+{
+    if (!_portalModeEnabled) {
+        _previewFrame =
+            pfhorge::preview::BuildWholeScenePreviewFrame(
+                _previewScene);
+        return;
+    }
+
+    const CGSize drawableSize = self.drawableSize;
+    const float height =
+        std::max(
+            1.0F,
+            static_cast<float>(drawableSize.height));
+    const float aspectRatio =
+        std::max(
+            0.01F,
+            static_cast<float>(drawableSize.width) /
+            height);
+
+    const simd_float3 forward =
+        [self portalForwardVector];
+
+    pfhorge::preview::PreviewCamera camera;
+    camera.position =
+        pfhorge::preview::Vec3{
+            _portalCameraPosition.x,
+            _portalCameraPosition.y,
+            _portalCameraPosition.z,
+        };
+    camera.forward =
+        pfhorge::preview::Vec3{
+            forward.x,
+            forward.y,
+            forward.z,
+        };
+    camera.verticalFieldOfViewRadians =
+        60.0F *
+        static_cast<float>(M_PI) /
+        180.0F;
+    camera.aspectRatio = aspectRatio;
+    camera.nearPlane = 0.01F;
+
+    _previewFrame =
+        pfhorge::preview::BuildPortalPreviewFrame(
+            _previewScene,
+            camera);
+}
+
+- (void)positionPortalCameraInsideFirstPolygon
+{
+    if (_previewScene.polygons.empty()) {
+        _portalCameraPosition =
+            simd_make_float3(0.0F, 0.0F, 0.0F);
+        _cameraYaw = 0.0F;
+        _cameraPitch = 0.0F;
+        return;
+    }
+
+    const pfhorge::preview::PreviewPolygon& polygon =
+        _previewScene.polygons.front();
+
+    simd_float3 centroid =
+        simd_make_float3(0.0F, 0.0F, 0.0F);
+    std::size_t validEndpointCount = 0U;
+
+    for (const pfhorge::preview::StableID endpointID :
+         polygon.endpointIDs) {
+        if (endpointID >= _previewScene.endpoints.size()) {
+            continue;
+        }
+
+        const pfhorge::preview::Vec3& endpoint =
+            _previewScene.endpoints[endpointID];
+
+        centroid +=
+            simd_make_float3(
+                endpoint.x,
+                0.0F,
+                endpoint.z);
+        ++validEndpointCount;
+    }
+
+    if (validEndpointCount > 0U) {
+        centroid /=
+            static_cast<float>(validEndpointCount);
+    }
+
+    centroid.y =
+        (polygon.floorHeight + polygon.ceilingHeight) *
+        0.5F;
+
+    _portalCameraPosition = centroid;
+    _cameraYaw = 0.0F;
+    _cameraPitch = 0.0F;
+}
+
 - (void)rebuildVertexBuffer
 {
     _metalVertices.clear();
 
+    const std::vector<PreviewSurface>& surfaces =
+        (_portalModeEnabled &&
+         _previewFrame.cameraInsideScene)
+            ? _previewFrame.visibleSurfaces
+            : _previewScene.surfaces;
+
     std::size_t indexCount = 0U;
 
-    for (const PreviewSurface& surface :
-         _previewScene.surfaces) {
+    for (const PreviewSurface& surface : surfaces) {
         indexCount += surface.indices.size();
     }
 
     _metalVertices.reserve(indexCount);
 
-    for (const PreviewSurface& surface :
-         _previewScene.surfaces) {
+    for (const PreviewSurface& surface : surfaces) {
         const simd_float4 color =
             ColorForSurface(surface);
 
@@ -393,11 +531,19 @@ fragment float4 pfhorgePreviewFragment(
                                 options:
                          MTLResourceStorageModeShared];
     _vertexBuffer.label =
-        @"Pfhorge VM-2 Geometry";
+        @"Pfhorge VM-3 Portal Geometry";
 }
+
 
 - (void)resetCamera
 {
+    if (_portalModeEnabled) {
+        [self positionPortalCameraInsideFirstPolygon];
+        [self rebuildPreviewFrame];
+        [self rebuildVertexBuffer];
+        return;
+    }
+
     if (_metalVertices.empty()) {
         _cameraTarget =
             simd_make_float3(0.0F, 0.0F, 0.0F);
@@ -446,24 +592,35 @@ fragment float4 pfhorgePreviewFragment(
         std::max(3.0F, largestExtent * 1.8F);
 }
 
+
 - (matrix_float4x4)viewProjectionMatrix
 {
-    const float cosPitch = std::cos(_cameraPitch);
+    simd_float3 eye;
+    simd_float3 target;
 
-    const simd_float3 orbitDirection =
-        simd_make_float3(
-            std::sin(_cameraYaw) * cosPitch,
-            std::sin(_cameraPitch),
-            std::cos(_cameraYaw) * cosPitch);
+    if (_portalModeEnabled) {
+        eye = _portalCameraPosition;
+        target =
+            eye + [self portalForwardVector];
+    } else {
+        const float cosPitch = std::cos(_cameraPitch);
 
-    const simd_float3 eye =
-        _cameraTarget +
-        orbitDirection * _cameraDistance;
+        const simd_float3 orbitDirection =
+            simd_make_float3(
+                std::sin(_cameraYaw) * cosPitch,
+                std::sin(_cameraPitch),
+                std::cos(_cameraYaw) * cosPitch);
+
+        eye =
+            _cameraTarget +
+            orbitDirection * _cameraDistance;
+        target = _cameraTarget;
+    }
 
     const matrix_float4x4 view =
         MakeLookAtMatrix(
             eye,
-            _cameraTarget,
+            target,
             simd_make_float3(0.0F, 1.0F, 0.0F));
 
     const CGSize drawableSize = self.drawableSize;
@@ -478,9 +635,17 @@ fragment float4 pfhorgePreviewFragment(
             height);
 
     const float nearPlane =
-        std::max(0.01F, _cameraDistance / 1000.0F);
+        _portalModeEnabled
+            ? 0.01F
+            : std::max(
+                0.01F,
+                _cameraDistance / 1000.0F);
     const float farPlane =
-        std::max(1000.0F, _cameraDistance * 50.0F);
+        _portalModeEnabled
+            ? 10000.0F
+            : std::max(
+                1000.0F,
+                _cameraDistance * 50.0F);
 
     const matrix_float4x4 projection =
         MakePerspectiveMatrix(
@@ -493,6 +658,7 @@ fragment float4 pfhorgePreviewFragment(
 
     return simd_mul(projection, view);
 }
+
 
 - (void)drawInMTKView:(MTKView *)view
 {
@@ -511,7 +677,7 @@ fragment float4 pfhorgePreviewFragment(
     id<MTLCommandBuffer> commandBuffer =
         [_commandQueue commandBuffer];
     commandBuffer.label =
-        @"Pfhorge VM-2 Frame";
+        @"Pfhorge VM-3 Frame";
 
     id<MTLRenderCommandEncoder> encoder =
         [commandBuffer renderCommandEncoderWithDescriptor:
@@ -597,21 +763,37 @@ drawableSizeWillChange:(CGSize)size
             1.45F);
 
     _lastDragLocation = location;
+
+    if (_portalModeEnabled) {
+        [self rebuildPreviewFrame];
+        [self rebuildVertexBuffer];
+    }
 }
+
 
 - (void)scrollWheel:(NSEvent *)event
 {
-    const float zoomFactor =
+    const float factor =
         std::exp(
             static_cast<float>(event.scrollingDeltaY) *
             0.035F);
 
+    if (_portalModeEnabled) {
+        _portalMoveSpeed =
+            std::clamp(
+                _portalMoveSpeed * factor,
+                0.01F,
+                10.0F);
+        return;
+    }
+
     _cameraDistance =
         std::clamp(
-            _cameraDistance * zoomFactor,
+            _cameraDistance * factor,
             0.20F,
             100000.0F);
 }
+
 
 - (void)keyDown:(NSEvent *)event
 {
@@ -625,6 +807,97 @@ drawableSizeWillChange:(CGSize)size
 
     const unichar key =
         [characters characterAtIndex:0U];
+
+    if (key == 'p') {
+        _portalModeEnabled = !_portalModeEnabled;
+
+        if (_portalModeEnabled) {
+            [self resetCamera];
+        } else {
+            _previewFrame =
+                pfhorge::preview::BuildWholeScenePreviewFrame(
+                    _previewScene);
+            [self rebuildVertexBuffer];
+            [self resetCamera];
+        }
+
+        NSLog(
+            @"Metal Visual Mode VM-3 camera mode: %@",
+            _portalModeEnabled
+                ? @"portal first-person"
+                : @"orbit diagnostic");
+        return;
+    }
+
+    if (key == 'r') {
+        [self resetCamera];
+        return;
+    }
+
+    if (_portalModeEnabled) {
+        simd_float3 forward =
+            simd_make_float3(
+                std::sin(_cameraYaw),
+                0.0F,
+                -std::cos(_cameraYaw));
+
+        if (simd_length_squared(forward) > 0.000001F) {
+            forward = simd_normalize(forward);
+        }
+
+        const simd_float3 right =
+            simd_make_float3(
+                -forward.z,
+                0.0F,
+                forward.x);
+
+        bool moved = true;
+
+        switch (key) {
+            case 'w':
+                _portalCameraPosition +=
+                    forward * _portalMoveSpeed;
+                break;
+
+            case 's':
+                _portalCameraPosition -=
+                    forward * _portalMoveSpeed;
+                break;
+
+            case 'a':
+                _portalCameraPosition -=
+                    right * _portalMoveSpeed;
+                break;
+
+            case 'd':
+                _portalCameraPosition +=
+                    right * _portalMoveSpeed;
+                break;
+
+            case 'q':
+                _portalCameraPosition.y -=
+                    _portalMoveSpeed;
+                break;
+
+            case 'e':
+                _portalCameraPosition.y +=
+                    _portalMoveSpeed;
+                break;
+
+            default:
+                moved = false;
+                [super keyDown:event];
+                break;
+        }
+
+        if (moved) {
+            [self rebuildPreviewFrame];
+            [self rebuildVertexBuffer];
+        }
+
+        return;
+    }
+
     const float step =
         std::max(0.05F, _cameraDistance * 0.04F);
 
@@ -670,14 +943,11 @@ drawableSizeWillChange:(CGSize)size
             _cameraTarget.y += step;
             break;
 
-        case 'r':
-            [self resetCamera];
-            break;
-
         default:
             [super keyDown:event];
             break;
     }
 }
+
 
 @end

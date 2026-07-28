@@ -1,39 +1,230 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Adam Vadala-Roth
+
 #pragma once
 
 #include "PreviewScene.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
+#include <deque>
+#include <limits>
 #include <optional>
-#include <queue>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
-namespace pfhorge {
-namespace preview {
+namespace pfhorge::preview {
 
-struct PreviewPortal final {
-    StableID sourcePolygonID = kInvalidPreviewID;
-    StableID destinationPolygonID = kInvalidPreviewID;
-    Vec3 lowerLeft;
-    Vec3 lowerRight;
-    Vec3 upperRight;
-    Vec3 upperLeft;
+struct PortalClipRegion final {
+    float left = 0.0F;
+    float right = 0.0F;
+    float bottom = 0.0F;
+    float top = 0.0F;
 
-    [[nodiscard]] bool open() const noexcept {
-        return upperLeft.y > lowerLeft.y &&
-               upperRight.y > lowerRight.y;
+    [[nodiscard]] bool valid(float epsilon = 0.00001F) const noexcept {
+        return right - left > epsilon && top - bottom > epsilon;
     }
+
+    [[nodiscard]] bool encloses(
+        const PortalClipRegion& other,
+        float epsilon = 0.0001F) const noexcept
+    {
+        return left <= other.left + epsilon &&
+               right >= other.right - epsilon &&
+               bottom <= other.bottom + epsilon &&
+               top >= other.top - epsilon;
+    }
+};
+
+struct PreviewCamera final {
+    Vec3 position;
+    Vec3 forward{0.0F, 0.0F, -1.0F};
+    float verticalFieldOfViewRadians = 1.0471975512F;
+    float aspectRatio = 1.0F;
+    float nearPlane = 0.01F;
+    std::uint32_t maximumTraversalDepth = 96U;
+    std::uint32_t maximumRegionsPerPolygon = 24U;
 };
 
 struct PreviewFrame final {
     StableID cameraPolygonID = kInvalidPreviewID;
+    bool cameraInsideScene = false;
     std::vector<StableID> visiblePolygonIDs;
     std::vector<PreviewSurface> visibleSurfaces;
     std::vector<PreviewPortal> visiblePortals;
 };
+
+namespace detail {
+
+[[nodiscard]] inline Vec3 Add(const Vec3& a, const Vec3& b) noexcept {
+    return Vec3{a.x + b.x, a.y + b.y, a.z + b.z};
+}
+
+[[nodiscard]] inline Vec3 Subtract(const Vec3& a, const Vec3& b) noexcept {
+    return Vec3{a.x - b.x, a.y - b.y, a.z - b.z};
+}
+
+[[nodiscard]] inline Vec3 Scale(const Vec3& value, float scalar) noexcept {
+    return Vec3{
+        value.x * scalar,
+        value.y * scalar,
+        value.z * scalar,
+    };
+}
+
+[[nodiscard]] inline float Dot(const Vec3& a, const Vec3& b) noexcept {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+[[nodiscard]] inline Vec3 Cross(const Vec3& a, const Vec3& b) noexcept {
+    return Vec3{
+        a.y * b.z - a.z * b.y,
+        a.z * b.x - a.x * b.z,
+        a.x * b.y - a.y * b.x,
+    };
+}
+
+[[nodiscard]] inline float LengthSquared(const Vec3& value) noexcept {
+    return Dot(value, value);
+}
+
+[[nodiscard]] inline Vec3 NormalizeOr(
+    const Vec3& value,
+    const Vec3& fallback) noexcept
+{
+    const float lengthSquared = LengthSquared(value);
+
+    if (lengthSquared <= 0.0000001F) {
+        return fallback;
+    }
+
+    return Scale(value, 1.0F / std::sqrt(lengthSquared));
+}
+
+[[nodiscard]] inline const PreviewPolygon *FindPolygon(
+    const PreviewScene& scene,
+    StableID polygonID) noexcept
+{
+    const auto iterator = std::find_if(
+        scene.polygons.begin(),
+        scene.polygons.end(),
+        [polygonID](const PreviewPolygon& polygon) {
+            return polygon.id == polygonID;
+        });
+
+    return iterator == scene.polygons.end()
+        ? nullptr
+        : &*iterator;
+}
+
+[[nodiscard]] inline PortalClipRegion Intersect(
+    const PortalClipRegion& first,
+    const PortalClipRegion& second) noexcept
+{
+    return PortalClipRegion{
+        std::max(first.left, second.left),
+        std::min(first.right, second.right),
+        std::max(first.bottom, second.bottom),
+        std::min(first.top, second.top),
+    };
+}
+
+[[nodiscard]] inline std::optional<PortalClipRegion> ProjectPortal(
+    const PreviewPortal& portal,
+    const PreviewCamera& camera) noexcept
+{
+    const Vec3 forward =
+        NormalizeOr(camera.forward, Vec3{0.0F, 0.0F, -1.0F});
+    const Vec3 worldUp{0.0F, 1.0F, 0.0F};
+    const Vec3 right =
+        NormalizeOr(Cross(forward, worldUp), Vec3{1.0F, 0.0F, 0.0F});
+    const Vec3 cameraUp =
+        NormalizeOr(Cross(right, forward), worldUp);
+
+    const std::array<Vec3, 4U> corners{
+        portal.lowerLeft,
+        portal.lowerRight,
+        portal.upperRight,
+        portal.upperLeft,
+    };
+
+    float minimumX = std::numeric_limits<float>::max();
+    float maximumX = std::numeric_limits<float>::lowest();
+    float minimumY = std::numeric_limits<float>::max();
+    float maximumY = std::numeric_limits<float>::lowest();
+    bool projectedAnyCorner = false;
+
+    for (const Vec3& corner : corners) {
+        const Vec3 relative = Subtract(corner, camera.position);
+        const float depth = Dot(relative, forward);
+
+        if (depth <= camera.nearPlane) {
+            continue;
+        }
+
+        const float projectedX = Dot(relative, right) / depth;
+        const float projectedY = Dot(relative, cameraUp) / depth;
+
+        minimumX = std::min(minimumX, projectedX);
+        maximumX = std::max(maximumX, projectedX);
+        minimumY = std::min(minimumY, projectedY);
+        maximumY = std::max(maximumY, projectedY);
+        projectedAnyCorner = true;
+    }
+
+    if (!projectedAnyCorner) {
+        return std::nullopt;
+    }
+
+    PortalClipRegion result{
+        minimumX,
+        maximumX,
+        minimumY,
+        maximumY,
+    };
+
+    if (!result.valid()) {
+        return std::nullopt;
+    }
+
+    return result;
+}
+
+inline bool RecordRegionIfNew(
+    std::unordered_map<StableID, std::vector<PortalClipRegion>>& regions,
+    StableID polygonID,
+    const PortalClipRegion& candidate,
+    std::uint32_t maximumRegionsPerPolygon)
+{
+    std::vector<PortalClipRegion>& existing = regions[polygonID];
+
+    for (const PortalClipRegion& region : existing) {
+        if (region.encloses(candidate)) {
+            return false;
+        }
+    }
+
+    existing.erase(
+        std::remove_if(
+            existing.begin(),
+            existing.end(),
+            [&candidate](const PortalClipRegion& region) {
+                return candidate.encloses(region);
+            }),
+        existing.end());
+
+    if (existing.size() >= maximumRegionsPerPolygon) {
+        return false;
+    }
+
+    existing.push_back(candidate);
+    return true;
+}
+
+}  // namespace detail
 
 [[nodiscard]] inline bool PointInsidePolygonXZ(
     const PreviewScene& scene,
@@ -61,11 +252,14 @@ struct PreviewFrame final {
         const Vec3& a = scene.endpoints[currentID];
         const Vec3& b = scene.endpoints[previousID];
 
+        const float denominator = b.z - a.z;
         const bool crosses =
             ((a.z > point.z) != (b.z > point.z)) &&
             (point.x <
              (b.x - a.x) * (point.z - a.z) /
-                 ((b.z - a.z) == 0.0F ? 0.000001F : (b.z - a.z)) +
+                 (std::fabs(denominator) < 0.000001F
+                      ? 0.000001F
+                      : denominator) +
              a.x);
 
         if (crosses) {
@@ -94,13 +288,160 @@ struct PreviewFrame final {
     return std::nullopt;
 }
 
+[[nodiscard]] inline PreviewFrame BuildWholeScenePreviewFrame(
+    const PreviewScene& scene)
+{
+    PreviewFrame frame;
+    frame.visibleSurfaces = scene.surfaces;
+    frame.visiblePortals = scene.portals;
+    frame.visiblePolygonIDs.reserve(scene.polygons.size());
+
+    for (const PreviewPolygon& polygon : scene.polygons) {
+        frame.visiblePolygonIDs.push_back(polygon.id);
+    }
+
+    return frame;
+}
+
 /**
- * VM-3 foundation traversal.
+ * Builds a renderer-neutral frame using projected portal clipping.
  *
- * This deliberately performs topological adjacency traversal only. Screen-space
- * portal clipping and Aleph One-compatible revisit rules are the next VM-3
- * increment. Keeping this stage renderer-neutral lets us test map topology
- * before introducing projection math.
+ * The traversal follows the same core invariants used by Marathon/Aleph One:
+ * start in the camera polygon, cross only transparent polygon transitions,
+ * narrow inherited clipping windows at each portal, and permit a polygon to be
+ * revisited when it is reached through a materially different clip region.
+ *
+ * This is an independently written floating-point adaptation for editor
+ * preview use. It does not copy Aleph One's map globals, fixed-point ray
+ * caster, automap mutation, object placement, or rasterizer state.
+ */
+[[nodiscard]] inline PreviewFrame BuildPortalPreviewFrame(
+    const PreviewScene& scene,
+    const PreviewCamera& camera)
+{
+    PreviewFrame frame;
+
+    const std::optional<StableID> containing =
+        FindContainingPolygon(scene, camera.position);
+
+    if (!containing.has_value()) {
+        return frame;
+    }
+
+    frame.cameraPolygonID = *containing;
+    frame.cameraInsideScene = true;
+
+    const float verticalHalfExtent =
+        std::tan(
+            std::clamp(
+                camera.verticalFieldOfViewRadians,
+                0.05F,
+                3.0F) *
+            0.5F);
+    const float horizontalHalfExtent =
+        verticalHalfExtent *
+        std::max(0.01F, camera.aspectRatio);
+
+    const PortalClipRegion initialRegion{
+        -horizontalHalfExtent,
+        horizontalHalfExtent,
+        -verticalHalfExtent,
+        verticalHalfExtent,
+    };
+
+    struct TraversalNode final {
+        StableID polygonID = kInvalidPreviewID;
+        PortalClipRegion clipRegion;
+        std::uint32_t depth = 0U;
+    };
+
+    std::deque<TraversalNode> pending;
+    std::unordered_map<StableID, std::vector<PortalClipRegion>>
+        visitedRegions;
+    std::unordered_set<StableID> visiblePolygons;
+
+    pending.push_back(
+        TraversalNode{
+            *containing,
+            initialRegion,
+            0U,
+        });
+    detail::RecordRegionIfNew(
+        visitedRegions,
+        *containing,
+        initialRegion,
+        camera.maximumRegionsPerPolygon);
+
+    while (!pending.empty()) {
+        const TraversalNode node = pending.front();
+        pending.pop_front();
+
+        if (detail::FindPolygon(scene, node.polygonID) == nullptr) {
+            continue;
+        }
+
+        visiblePolygons.insert(node.polygonID);
+
+        if (node.depth >= camera.maximumTraversalDepth) {
+            continue;
+        }
+
+        for (const PreviewPortal& portal : scene.portals) {
+            if (portal.sourcePolygonID != node.polygonID ||
+                !portal.open()) {
+                continue;
+            }
+
+            const std::optional<PortalClipRegion> projected =
+                detail::ProjectPortal(portal, camera);
+
+            if (!projected.has_value()) {
+                continue;
+            }
+
+            const PortalClipRegion clipped =
+                detail::Intersect(node.clipRegion, *projected);
+
+            if (!clipped.valid()) {
+                continue;
+            }
+
+            if (!detail::RecordRegionIfNew(
+                    visitedRegions,
+                    portal.destinationPolygonID,
+                    clipped,
+                    camera.maximumRegionsPerPolygon)) {
+                continue;
+            }
+
+            frame.visiblePortals.push_back(portal);
+            pending.push_back(
+                TraversalNode{
+                    portal.destinationPolygonID,
+                    clipped,
+                    node.depth + 1U,
+                });
+        }
+    }
+
+    frame.visiblePolygonIDs.assign(
+        visiblePolygons.begin(),
+        visiblePolygons.end());
+    std::sort(
+        frame.visiblePolygonIDs.begin(),
+        frame.visiblePolygonIDs.end());
+
+    for (const PreviewSurface& surface : scene.surfaces) {
+        if (visiblePolygons.count(surface.polygonID) != 0U) {
+            frame.visibleSurfaces.push_back(surface);
+        }
+    }
+
+    return frame;
+}
+
+/**
+ * Compatibility helper retained for the VM-3 foundation smoke test.
  */
 [[nodiscard]] inline PreviewFrame BuildTopologicalPreviewFrame(
     const PreviewScene& scene,
@@ -108,35 +449,33 @@ struct PreviewFrame final {
 {
     PreviewFrame frame;
     frame.cameraPolygonID = cameraPolygonID;
+    frame.cameraInsideScene =
+        detail::FindPolygon(scene, cameraPolygonID) != nullptr;
 
-    std::queue<StableID> pending;
+    std::deque<StableID> pending;
     std::unordered_set<StableID> visited;
-    pending.push(cameraPolygonID);
+    pending.push_back(cameraPolygonID);
 
     while (!pending.empty()) {
         const StableID polygonID = pending.front();
-        pending.pop();
+        pending.pop_front();
 
         if (!visited.insert(polygonID).second) {
             continue;
         }
 
-        auto polygonIt = std::find_if(
-            scene.polygons.begin(),
-            scene.polygons.end(),
-            [polygonID](const PreviewPolygon& polygon) {
-                return polygon.id == polygonID;
-            });
+        const PreviewPolygon *polygon =
+            detail::FindPolygon(scene, polygonID);
 
-        if (polygonIt == scene.polygons.end()) {
+        if (polygon == nullptr) {
             continue;
         }
 
         frame.visiblePolygonIDs.push_back(polygonID);
 
-        for (StableID adjacentID : polygonIt->adjacentPolygonIDs) {
+        for (StableID adjacentID : polygon->adjacentPolygonIDs) {
             if (adjacentID != kInvalidPreviewID) {
-                pending.push(adjacentID);
+                pending.push_back(adjacentID);
             }
         }
     }
@@ -150,5 +489,4 @@ struct PreviewFrame final {
     return frame;
 }
 
-}  // namespace preview
-}  // namespace pfhorge
+}  // namespace pfhorge::preview

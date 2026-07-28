@@ -56,3 +56,22 @@ an exact upstream commit is pinned and the first visibility fixture is selected.
 - no global Aleph One preference system
 - no OpenGL calls in Preview/Core or Preview/Marathon
 - no raw pointers from renderer code into mutable Pfhorge editor objects
+
+## Import record: VM-3B visibility invariants
+
+```text
+Date: 2026-07-28
+Aleph One commit: 4cd8346e1c51dbba48434ccd301d73794f16e086
+Upstream path: Source_Files/RenderMain/RenderVisTree.h
+Upstream path: Source_Files/RenderMain/RenderVisTree.cpp
+Pfhorge destination: Pfhorge Source/Preview/Core/PreviewVisibility.hpp
+Upstream authors/notices preserved: Aleph One attribution recorded here; no
+  verbatim implementation block was copied.
+SPDX identifier: GPL-3.0-or-later
+Adaptation summary: independently written floating-point editor traversal using
+  camera-polygon roots, transparent transitions, inherited clip windows, and
+  distinct polygon revisits for distinct clipping regions. Aleph One globals,
+  fixed-point ray casting, automap mutation, object placement, and rasterizer
+  state were not imported.
+Tests: PreviewVisibilitySmoke.cpp; PreviewPortalClippingSmoke.cpp
+```
