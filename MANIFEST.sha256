@@ -1,0 +1,15 @@
+7dd89d24880de6892fea91dfe56b92733362351b3263c6b47a51ad56277b8a02  ./.github/workflows/macos-baseline.yml
+edaef632cbb643e4e7a221717a6c441a4c1a7c918e6e4d56debc3d8739b233f6  ./LICENSE
+06dcee01731f7a93d6d87a4f3a7b196c6649484b717f121eaa98d9e1026d2814  ./NOTICE.md
+aaecd316c16ad79a11cbb2f49d8d5de97c38bb851a99bd2a2ba2cfcf6fcabda6  ./README.md
+6c85d40c1ba31b16618cf7cf00751e0af390c2aec85ef0e548e33a91756a7607  ./RevivalArtifacts/.gitignore
+de770edeae89d3f4d2f9989444597a91d9dad5093e49eec109dd038832e0edd2  ./docs/revival/COMMIT-CHECKLIST.md
+70b1808a38fa2d8e9f7dc95ecf5db6bc15a9f71dae06d124db23bf518d5ae22b  ./docs/revival/FIRST-MAC-TEST.md
+af294e53d69c06a223927e1e013f646c4d1f92e6997c1866fe7ef4aa697bd714  ./docs/revival/LICENSE-POLICY.md
+43af565d53d13ccae7d29d730163bd14825ba68c8c2c37ede01bc0db929bd8e9  ./docs/revival/STAGE-1-BASELINE.md
+45a26259cbf638aaa52b4884effae95aa4b2fa2f71247388623bcb4e9fd54e9f  ./docs/revival/TEST-MATRIX.md
+f9596ff4c8859a5d6eb64fd02d7472536aad2b71c83b5092de1683b72d535991  ./revival.mk
+a5d43bea60df92ffd58bdf481a846f2b05be6577b06333643c5d0b876d1a49ed  ./scripts/revival/baseline_build.sh
+df976dc2aa801fcfb33f7bf946dfcd471fd4eb719e652a809c1e045940d8595a  ./scripts/revival/bootstrap_macos.sh
+593997ff555bac4786ff3d9f87a8082a91b924a6d9bd459ca871866cbc95a992  ./scripts/revival/parse_build_log.py
+b01326eb7dfc51ebdfbd082aff17acb6bfb90ad413d1f0e5e8fdb58123eef702  ./scripts/revival/source_audit.py

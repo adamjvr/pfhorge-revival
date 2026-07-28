@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright (C) 2026 Adam Vadala-Roth
+
+name: macOS Baseline
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "revival/**"
+      - develop
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  source-audit:
+    name: Source audit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Audit source and project
+        run: python3 scripts/revival/source_audit.py --root . --output-dir RevivalArtifacts
+      - name: Upload source audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: pfhorge-source-audit
+          path: |
+            RevivalArtifacts/source-audit.md
+            RevivalArtifacts/source-audit.json
+
+  baseline-build:
+    name: Baseline on ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - macos-15
+          - macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record selected Xcode
+        run: |
+          xcode-select -p
+          xcodebuild -version
+      - name: Audit source and project
+        run: python3 scripts/revival/source_audit.py --root . --output-dir RevivalArtifacts
+      - name: Capture baseline build
+        env:
+          PFHORGE_BASELINE_ALLOW_FAILURE: "1"
+        run: scripts/revival/baseline_build.sh
+      - name: Upload baseline reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pfhorge-baseline-${{ matrix.runner }}
+          if-no-files-found: warn
+          path: |
+            RevivalArtifacts/*.md
+            RevivalArtifacts/*.json
+            RevivalArtifacts/*.txt
+            RevivalArtifacts/*.log
+            RevivalArtifacts/*.stderr
