@@ -86,7 +86,6 @@
 {
     TextureRepository *textures = [TextureRepository sharedTextureRepository];
     
-    [self setupWindow];
     
     [self setProgressPostion:0.0];
     [self setMinProgress:0.0];
@@ -98,13 +97,19 @@
     //TODO: Don't open the shapes file over and over...
     if ([textures textureCollection:_water] == nil)
     {
-        [self setStatusText:NSLocalizedString(@"Can't load, choose shapes location in prefs…", @"Can't load, choose shapes location in prefs…")];
-        [self closeWindow];
-        NSAlert *alert = [[NSAlert alloc] init];
-        alert.messageText = NSLocalizedString(@"Shapes Not Found", @"Shapes Not Found");
-        alert.informativeText = NSLocalizedString(@"Could not load textures, please set shapes location in the prefs.", @"Could not load textures, please set shapes location in the prefs.");
-        alert.alertStyle = NSAlertStyleInformational;
-        [alert runModal];
+        /*
+         * A Marathon Shapes data file is optional during the current
+         * renderer-revival stages. Metal VM-2/VM-3 can operate without
+         * decoded textures, so do not interrupt every application launch
+         * with a modal alert.
+         *
+         * A later first-run setup screen can provide a deliberate Shapes
+         * import workflow after the splash has closed.
+         */
+        NSLog(
+            @"Pfhorge: Marathon Shapes data was not found. "
+             "Texture collections will remain unavailable until a "
+             "Shapes file is configured in Preferences.");
         return;
     }
     

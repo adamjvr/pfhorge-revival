@@ -35,6 +35,88 @@
 
 #import "PhPluginManager.h"
 
+#include "../Splash/PfhorgeSplashController.inc"
+
+
+#pragma mark - Revival Support Directories
+
+static void EnsurePfhorgeSupportDirectories(void)
+{
+    NSFileManager *fileManager =
+        [NSFileManager defaultManager];
+
+    NSArray<NSString *> *applicationSupportPaths =
+        NSSearchPathForDirectoriesInDomains(
+            NSApplicationSupportDirectory,
+            NSUserDomainMask,
+            YES);
+
+    NSString *applicationSupport =
+        applicationSupportPaths.firstObject;
+
+    NSMutableArray<NSString *> *requiredDirectories =
+        [NSMutableArray arrayWithObject:
+            [@"~/Library/Pfhorge Scripts"
+                stringByExpandingTildeInPath]];
+
+    if (applicationSupport.length > 0) {
+        NSString *pfhorgeSupport =
+            [applicationSupport
+                stringByAppendingPathComponent:@"Pfhorge"];
+
+        [requiredDirectories addObject:pfhorgeSupport];
+
+        [requiredDirectories addObject:
+            [pfhorgeSupport
+                stringByAppendingPathComponent:@"PlugIns"]];
+
+        [requiredDirectories addObject:
+            [pfhorgeSupport
+                stringByAppendingPathComponent:@"Scripts"]];
+
+        [requiredDirectories addObject:
+            [pfhorgeSupport
+                stringByAppendingPathComponent:@"Autosave"]];
+    }
+
+    for (NSString *directory in requiredDirectories) {
+        BOOL isDirectory = NO;
+
+        if ([fileManager fileExistsAtPath:directory
+                             isDirectory:&isDirectory]) {
+            if (!isDirectory) {
+                NSLog(
+                    @"Pfhorge support path exists but is not "
+                     "a directory: %@",
+                    directory);
+            }
+
+            continue;
+        }
+
+        NSError *error = nil;
+
+        BOOL created =
+            [fileManager
+                createDirectoryAtPath:directory
+          withIntermediateDirectories:YES
+                           attributes:nil
+                                error:&error];
+
+        if (!created) {
+            NSLog(
+                @"Could not initialize Pfhorge support "
+                 "directory %@: %@",
+                directory,
+                error);
+        } else {
+            NSLog(
+                @"Initialized Pfhorge support directory: %@",
+                directory);
+        }
+    }
+}
+
 @implementation LEDelegate
 
 /*- (void)createTrickyMenu {
@@ -139,6 +221,8 @@
 //	Here we scan the application's plug-in folder for plug-ins and try to activate them.
 
 - (void)applicationWillFinishLaunching:(NSNotification*)notification {
+    EnsurePfhorgeSupportDirectories();
+
     [[PhPluginManager sharedPhPluginManager] findPlugins];
 }
 
@@ -189,6 +273,9 @@
     
     [self setupAppleScriptMenu];
     [self setupPluginMenu];
+
+    // Folder/plugin alerts must finish before the splash appears.
+    [[PfhorgeSplashController sharedController] showSplash];
     
      // Load The Textures
     //[[PhTextureRepository sharedTextureRepository] loadTheTextures];
@@ -199,9 +286,10 @@
      // A Test For The Textures and the Loading Window of the Future...
     startupWinController = [[PhStartupWinController alloc] init];
     
-    [startupWinController showWindow:self];
     
     [startupWinController loadTexturesNow];
+
+    [[PfhorgeSplashController sharedController] dismissSplash];
     
     [LEInspectorController sharedInspectorController];
     [LEPaletteController sharedPaletteController];
@@ -302,11 +390,8 @@
         //NSString *theExScriptPath = [[NSBundle mainBundle] pathForResource:@"Example Script" ofType:@"scpt"];
         BOOL isNewDir = NO;
         
-        NSAlert *alert = [[NSAlert alloc] init];
-        alert.messageText = NSLocalizedString(@"Creating Script Folder", @"Creating Script Folder");
-        alert.informativeText = NSLocalizedString(@"Script folder does not exist. Please see read me for details about using this. Creating it…", @"Creating Script folder");
-        alert.alertStyle = NSAlertStyleInformational;
-        [alert runModal];
+        // Revival builds create required support directories silently
+        // during applicationWillFinishLaunching.
         
         NSLog(@"Script folder does not exsist at: '%@', attempting to create it...", scriptFolder);
         

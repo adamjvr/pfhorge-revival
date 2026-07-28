@@ -26,4 +26,11 @@ fi
 "$OUTPUT"
 rm -f "$OUTPUT"
 
+VIS_SOURCE="$ROOT/Pfhorge Source/Preview/Tests/PreviewVisibilitySmoke.cpp"
+VIS_OUTPUT="${TMPDIR:-/tmp}/pfhorge-preview-visibility-smoke"
+
+"$CXX" -std=c++17 -Wall -Wextra -Wpedantic -Werror "$VIS_SOURCE" -o "$VIS_OUTPUT"
+"$VIS_OUTPUT"
+rm -f "$VIS_OUTPUT"
+
 echo "preview core smoke test passed"
