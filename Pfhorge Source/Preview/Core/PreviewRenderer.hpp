@@ -18,7 +18,7 @@ struct PreviewCamera final {
     float verticalFieldOfViewRadians = 1.0471975512F;
     float nearPlane = 0.05F;
     float farPlane = 32768.0F;
-    StableID containingPolygon = kInvalidID;
+    StableID containingPolygon = kInvalidPreviewID;
 };
 
 struct PickingResult final {

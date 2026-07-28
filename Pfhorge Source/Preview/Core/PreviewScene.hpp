@@ -12,8 +12,8 @@ namespace pfhorge::preview {
 
 struct PreviewSurface final {
     SurfaceID id;
-    StableID polygonID = kInvalidID;
-    StableID sideID = kInvalidID;
+    StableID polygonID = kInvalidPreviewID;
+    StableID sideID = kInvalidPreviewID;
     TextureDescriptor texture;
     std::int16_t lightIndex = -1;
     std::vector<PreviewVertex> vertices;
@@ -21,7 +21,7 @@ struct PreviewSurface final {
 };
 
 struct PreviewPolygon final {
-    StableID id = kInvalidID;
+    StableID id = kInvalidPreviewID;
     std::vector<StableID> endpointIDs;
     std::vector<StableID> adjacentPolygonIDs;
     float floorHeight = 0.0F;
