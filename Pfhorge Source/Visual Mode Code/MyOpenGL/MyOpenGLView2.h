@@ -4,6 +4,7 @@
 #import <OpenGL/OpenGL.h>
 #import <OpenGL/gl.h>
 #import <OpenGL/glu.h>
+#import <MetalKit/MetalKit.h>
 #import "LELevelData.h"
 
 enum {
@@ -11,6 +12,13 @@ enum {
     coloredPolys = 1,
     texturedPolys = 2
 };
+
+@interface PfhorgeMetalPreviewView : MTKView <MTKViewDelegate>
+
+- (instancetype)initWithFrame:(NSRect)frameRect
+                    levelData:(LELevelData *)levelData;
+
+@end
 
 @interface MyOpenGLView : NSOpenGLView
 {
@@ -35,3 +43,7 @@ enum {
 - (void)drawRect:(NSRect)rect;
 
 @end
+
+#ifdef __cplusplus
+#include "../../Preview/Metal/PfhorgeMetalPreviewView.inc"
+#endif

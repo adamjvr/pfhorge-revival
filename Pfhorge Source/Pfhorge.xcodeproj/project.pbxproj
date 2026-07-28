@@ -118,7 +118,7 @@
 		AE3C15960A04512100FBFFCD /* trigTables.c in Sources */ = {isa = PBXBuildFile; fileRef = A5CBB2CC04D630590046BBD2 /* trigTables.c */; };
 		AE3C15970A04512100FBFFCD /* PhNoteGroup.m in Sources */ = {isa = PBXBuildFile; fileRef = A59B9261054F9DED00E2A9DF /* PhNoteGroup.m */; };
 		AE3C15980A04512100FBFFCD /* PhNoteGroupsCon.m in Sources */ = {isa = PBXBuildFile; fileRef = A5DE35580550E7DC00363F01 /* PhNoteGroupsCon.m */; };
-		AE3C15A70A04512100FBFFCD /* MyOpenGLView2.mm in Sources */ = {isa = PBXBuildFile; fileRef = A5902BC6069E1A8600B4AB92 /* MyOpenGLView2.mm */; };
+		AE3C15A70A04512100FBFFCD /* MyOpenGLView2.mm in Sources */ = {isa = PBXBuildFile; fileRef = A5902BC6069E1A8600B4AB92 /* MyOpenGLView2.mm */; settings = {COMPILER_FLAGS = "-std=c++17"; }; };
 		AE3C15A80A04512100FBFFCD /* Camera.mm in Sources */ = {isa = PBXBuildFile; fileRef = A5902CB4069F718C00B4AB92 /* Camera.mm */; };
 		AE3C15A90A04512100FBFFCD /* OpenGLVisualModeController.m in Sources */ = {isa = PBXBuildFile; fileRef = F53CCE820228C0510146BBD2 /* OpenGLVisualModeController.m */; };
 		AE3C15AB0A04512100FBFFCD /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1058C7A7FEA54F5311CA2CBB /* Cocoa.framework */; };

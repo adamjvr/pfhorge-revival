@@ -10,7 +10,7 @@ namespace pfhorge::preview {
 
 using StableID = std::uint32_t;
 
-constexpr StableID kInvalidID = std::numeric_limits<StableID>::max();
+constexpr StableID kInvalidPreviewID = std::numeric_limits<StableID>::max();
 
 struct Vec2 final {
     float x = 0.0F;
@@ -47,11 +47,11 @@ struct TextureDescriptor final {
 
 struct SurfaceID final {
     SurfaceKind kind = SurfaceKind::Wall;
-    StableID owner = kInvalidID;
+    StableID owner = kInvalidPreviewID;
     std::uint16_t subpart = 0;
 
     [[nodiscard]] constexpr bool valid() const noexcept {
-        return owner != kInvalidID;
+        return owner != kInvalidPreviewID;
     }
 };
 

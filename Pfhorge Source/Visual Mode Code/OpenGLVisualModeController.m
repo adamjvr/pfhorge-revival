@@ -71,13 +71,44 @@
 - (void)windowDidLoad
 {
     [super windowDidLoad];
-    
-    //[self saveChanges];
-    
-    [OpenGLViewOGLV doMapRenderingLoopWithMapData:levelData
-                    shapesLocation:[preferences URLForKey:VMShapesPath].path];
-    
-    //[[self window] performClose:self];
+
+    NSDictionary<NSString *, NSString *> *environment =
+        NSProcessInfo.processInfo.environment;
+
+    BOOL useMetalPreview =
+        [environment[@"PFHORGE_METAL_PREVIEW"] boolValue] ||
+        [[NSUserDefaults standardUserDefaults]
+            boolForKey:@"PfhorgeUseMetalPreview"];
+
+    if (useMetalPreview) {
+        NSView *contentView = self.window.contentView;
+
+        PfhorgeMetalPreviewView *metalView =
+            [[PfhorgeMetalPreviewView alloc]
+                initWithFrame:contentView.bounds
+                    levelData:levelData];
+
+        if (metalView != nil) {
+            self.window.contentView = metalView;
+            self.window.title =
+                [self.window.title
+                    stringByAppendingString:
+                    @" — Metal Preview VM-2"];
+
+            [self.window makeFirstResponder:metalView];
+            return;
+        }
+
+        NSLog(
+            @"Metal Visual Mode could not initialize; "
+             "falling back to legacy OpenGL.");
+    }
+
+    [OpenGLViewOGLV
+        doMapRenderingLoopWithMapData:levelData
+                       shapesLocation:
+        [preferences URLForKey:VMShapesPath].path];
 }
+
 
 @end
