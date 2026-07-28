@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="23094" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES">
+    <dependencies>
+        <deployment identifier="macosx"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="23094"/>
+        <capability name="Named colors" minToolsVersion="9.0"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <objects>
+        <customObject id="-2" userLabel="File's Owner" customClass="PhProgress">
+            <connections>
+                <outlet property="informationText" destination="8" id="11"/>
+                <outlet property="statusBar" destination="9" id="10"/>
+                <outlet property="statusText" destination="16" id="17"/>
+                <outlet property="theCurStatTxt" destination="16" id="18"/>
+                <outlet property="theSecondStatTxt" destination="20" id="21"/>
+                <outlet property="theSecondStatusBar" destination="19" id="22"/>
+                <outlet property="theStatusWindow" destination="6" id="14"/>
+                <outlet property="window" destination="6" id="13"/>
+            </connections>
+        </customObject>
+        <customObject id="-1" userLabel="First Responder" customClass="FirstResponder"/>
+        <customObject id="-3" userLabel="Application" customClass="NSObject"/>
+        <window title="Please Wait…" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" deferred="NO" hidesOnDeactivate="YES" releasedWhenClosed="NO" visibleAtLaunch="NO" animationBehavior="default" id="6" userLabel="ProgressPanel" customClass="NSPanel">
+            <windowStyleMask key="styleMask" titled="YES" resizable="YES" utility="YES"/>
+            <windowPositionMask key="initialPositionMask" leftStrut="YES" rightStrut="YES" topStrut="YES" bottomStrut="YES"/>
+            <rect key="contentRect" x="42" y="587" width="336" height="104"/>
+            <rect key="screenRect" x="0.0" y="0.0" width="1512" height="944"/>
+            <view key="contentView" id="7">
+                <rect key="frame" x="0.0" y="0.0" width="336" height="100"/>
+                <autoresizingMask key="autoresizingMask"/>
+                <subviews>
+                    <progressIndicator wantsLayer="YES" verticalHuggingPriority="750" maxValue="100" bezeled="NO" style="bar" translatesAutoresizingMaskIntoConstraints="NO" id="9">
+                        <rect key="frame" x="20" y="58" width="296" height="20"/>
+                    </progressIndicator>
+                    <textField focusRingType="none" verticalHuggingPriority="750" horizontalCompressionResistancePriority="250" translatesAutoresizingMaskIntoConstraints="NO" id="8">
+                        <rect key="frame" x="22" y="80" width="297" height="14"/>
+                        <textFieldCell key="cell" controlSize="small" sendsActionOnEndEditing="YES" alignment="left" title="Informational Text" id="24">
+                            <font key="font" metaFont="smallSystem"/>
+                            <color key="textColor" red="1" green="0.0" blue="0.031819343566894531" alpha="1" colorSpace="calibratedRGB"/>
+                            <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <textField focusRingType="none" verticalHuggingPriority="750" horizontalCompressionResistancePriority="250" translatesAutoresizingMaskIntoConstraints="NO" id="16">
+                        <rect key="frame" x="22" y="45" width="292" height="14"/>
+                        <textFieldCell key="cell" controlSize="small" sendsActionOnEndEditing="YES" alignment="left" title="Informational Text" id="25">
+                            <font key="font" metaFont="smallSystem"/>
+                            <color key="textColor" name="SpecialTextColor"/>
+                            <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <progressIndicator wantsLayer="YES" verticalHuggingPriority="750" maxValue="100" bezeled="NO" style="bar" translatesAutoresizingMaskIntoConstraints="NO" id="19">
+                        <rect key="frame" x="20" y="20" width="296" height="20"/>
+                    </progressIndicator>
+                    <textField focusRingType="none" verticalHuggingPriority="750" horizontalCompressionResistancePriority="250" translatesAutoresizingMaskIntoConstraints="NO" id="20">
+                        <rect key="frame" x="21" y="4" width="14" height="18"/>
+                        <textFieldCell key="cell" controlSize="small" sendsActionOnEndEditing="YES" alignment="left" title="..." id="26">
+                            <font key="font" metaFont="smallSystem"/>
+                            <color key="textColor" name="SpecialTextColor"/>
+                            <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                </subviews>
+                <constraints>
+                    <constraint firstItem="20" firstAttribute="top" secondItem="16" secondAttribute="bottom" constant="23" id="2je-tm-8Oa"/>
+                    <constraint firstAttribute="bottom" secondItem="20" secondAttribute="bottom" constant="4" id="CFW-hf-kwq"/>
+                    <constraint firstItem="9" firstAttribute="leading" secondItem="19" secondAttribute="leading" id="EwQ-ZQ-sSF"/>
+                    <constraint firstItem="20" firstAttribute="leading" secondItem="7" secondAttribute="leading" constant="23" id="HB2-eD-KqH"/>
+                    <constraint firstItem="8" firstAttribute="leading" secondItem="16" secondAttribute="leading" id="Joy-ef-roK"/>
+                    <constraint firstItem="8" firstAttribute="leading" secondItem="7" secondAttribute="leading" constant="24" id="RJN-LJ-mxH"/>
+                    <constraint firstItem="19" firstAttribute="top" secondItem="16" secondAttribute="bottom" constant="6" id="Skp-k5-RtZ"/>
+                    <constraint firstItem="8" firstAttribute="top" secondItem="7" secondAttribute="top" constant="6" id="Sn4-p0-ips"/>
+                    <constraint firstItem="9" firstAttribute="leading" secondItem="7" secondAttribute="leading" constant="20" symbolic="YES" id="Ud3-Hc-4SY"/>
+                    <constraint firstAttribute="trailing" relation="greaterThanOrEqual" secondItem="20" secondAttribute="trailing" constant="20" symbolic="YES" id="X9a-lL-xoZ"/>
+                    <constraint firstItem="9" firstAttribute="top" secondItem="8" secondAttribute="bottom" constant="3" id="fdC-Sy-aVR"/>
+                    <constraint firstItem="16" firstAttribute="top" secondItem="9" secondAttribute="bottom" id="gBA-9N-MDp"/>
+                    <constraint firstItem="9" firstAttribute="trailing" secondItem="19" secondAttribute="trailing" id="gKq-bl-2Ry"/>
+                    <constraint firstAttribute="trailing" secondItem="9" secondAttribute="trailing" constant="20" symbolic="YES" id="hph-lg-pdZ"/>
+                    <constraint firstItem="9" firstAttribute="centerX" secondItem="16" secondAttribute="centerX" id="sdS-Ed-j7d"/>
+                    <constraint firstAttribute="bottom" secondItem="19" secondAttribute="bottom" constant="21" id="z6k-TV-HDg"/>
+                    <constraint firstAttribute="trailing" secondItem="8" secondAttribute="trailing" constant="19" id="zfp-VU-74I"/>
+                </constraints>
+            </view>
+            <point key="canvasLocation" x="139" y="150"/>
+        </window>
+    </objects>
+    <resources>
+        <namedColor name="SpecialTextColor">
+            <color red="0.19200000166893005" green="0.12399999797344208" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+        </namedColor>
+    </resources>
+</document>

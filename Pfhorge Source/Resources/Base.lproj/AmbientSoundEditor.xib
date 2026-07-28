@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="23094" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES">
+    <dependencies>
+        <deployment identifier="macosx"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="23094"/>
+        <capability name="Named colors" minToolsVersion="9.0"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <objects>
+        <customObject id="-2" userLabel="File's Owner" customClass="PhAmbientSndEditCon">
+            <connections>
+                <outlet property="infoIT" destination="40" id="42"/>
+                <outlet property="renameSheetMsgIT" destination="50" id="55"/>
+                <outlet property="theInputBox" destination="48" id="56"/>
+                <outlet property="theSheet" destination="52" id="57"/>
+                <outlet property="typeMenu" destination="8" id="41"/>
+                <outlet property="volumeTB" destination="14" id="43"/>
+                <outlet property="window" destination="5" id="44"/>
+            </connections>
+        </customObject>
+        <customObject id="-1" userLabel="First Responder" customClass="FirstResponder"/>
+        <customObject id="-3" userLabel="Application" customClass="NSObject"/>
+        <window title="Ambient" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" deferred="NO" visibleAtLaunch="NO" animationBehavior="default" id="5" userLabel="Window">
+            <windowStyleMask key="styleMask" titled="YES" closable="YES" miniaturizable="YES" resizable="YES"/>
+            <windowPositionMask key="initialPositionMask" leftStrut="YES" rightStrut="YES" topStrut="YES" bottomStrut="YES"/>
+            <rect key="contentRect" x="245" y="482" width="245" height="117"/>
+            <rect key="screenRect" x="0.0" y="0.0" width="1512" height="944"/>
+            <view key="contentView" id="6">
+                <rect key="frame" x="0.0" y="0.0" width="245" height="132"/>
+                <autoresizingMask key="autoresizingMask"/>
+                <subviews>
+                    <popUpButton imageHugsTitle="YES" horizontalHuggingPriority="251" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="8">
+                        <rect key="frame" x="83" y="43" width="146" height="22"/>
+                        <popUpButtonCell key="cell" type="push" title="Water" bezelStyle="rounded" controlSize="small" lineBreakMode="clipping" state="on" borderStyle="borderAndBezel" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" selectedItem="11" id="65">
+                            <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
+                            <font key="font" metaFont="smallSystem"/>
+                            <menu key="menu" title="OtherViews" id="9">
+                                <items>
+                                    <menuItem title="Water" state="on" id="11"/>
+                                    <menuItem title="Sewage" id="10"/>
+                                    <menuItem title="Lava" id="7"/>
+                                    <menuItem title="Goo" id="15"/>
+                                    <menuItem title="Under Media" id="16"/>
+                                    <menuItem title="Wind" id="17"/>
+                                    <menuItem title="Waterfall" id="18"/>
+                                    <menuItem title="Siren" id="19"/>
+                                    <menuItem title="Fan" id="20"/>
+                                    <menuItem title="S'pht Door" id="21"/>
+                                    <menuItem title="S'pht Platform" id="22"/>
+                                    <menuItem title="Heavy S'pht Door" id="23"/>
+                                    <menuItem title="Heavy S'pht Platform" id="24"/>
+                                    <menuItem title="Light Machinery" id="25"/>
+                                    <menuItem title="Heavy Machinery" id="26"/>
+                                    <menuItem title="Transformer" id="27"/>
+                                    <menuItem title="Sparking Transformer" id="28"/>
+                                    <menuItem title="Machine Binder" id="29"/>
+                                    <menuItem title="Machine Bookpress" id="30"/>
+                                    <menuItem title="Machine Puncher" id="31"/>
+                                    <menuItem title="Electric Hum" id="32"/>
+                                    <menuItem title="Siren" id="33"/>
+                                    <menuItem title="Night Wind" id="34"/>
+                                    <menuItem title="Pfhor Door" id="35"/>
+                                    <menuItem title="Pfhor Platform" id="36"/>
+                                    <menuItem title="Phfor Ship #1" id="37"/>
+                                    <menuItem title="Pfhor Ship #2" id="38"/>
+                                    <menuItem title="Jjaro Ship" id="39"/>
+                                </items>
+                            </menu>
+                        </popUpButtonCell>
+                        <connections>
+                            <action selector="saveBtnAction:" target="-2" id="45"/>
+                            <outlet property="nextKeyView" destination="14" id="62"/>
+                        </connections>
+                    </popUpButton>
+                    <textField focusRingType="none" verticalHuggingPriority="750" horizontalCompressionResistancePriority="751" setsMaxLayoutWidthAtFirstLayout="YES" translatesAutoresizingMaskIntoConstraints="NO" id="12">
+                        <rect key="frame" x="48" y="48" width="33" height="14"/>
+                        <textFieldCell key="cell" sendsActionOnEndEditing="YES" alignment="right" title="Type:" id="66">
+                            <font key="font" metaFont="message" size="11"/>
+                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <textField focusRingType="none" verticalHuggingPriority="750" horizontalCompressionResistancePriority="751" setsMaxLayoutWidthAtFirstLayout="YES" translatesAutoresizingMaskIntoConstraints="NO" id="13">
+                        <rect key="frame" x="34" y="22" width="47" height="14"/>
+                        <textFieldCell key="cell" controlSize="small" sendsActionOnEndEditing="YES" alignment="right" title="Volume:" id="67">
+                            <font key="font" metaFont="smallSystem"/>
+                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <textField focusRingType="none" verticalHuggingPriority="750" preferredMaxLayoutWidth="122" translatesAutoresizingMaskIntoConstraints="NO" id="14">
+                        <rect key="frame" x="87" y="20" width="138" height="19"/>
+                        <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" alignment="left" title="0" drawsBackground="YES" id="68">
+                            <font key="font" metaFont="message" size="11"/>
+                            <color key="textColor" name="SpecialTextColor"/>
+                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                        <connections>
+                            <action selector="saveBtnAction:" target="-2" id="46"/>
+                            <outlet property="nextKeyView" destination="8" id="63"/>
+                        </connections>
+                    </textField>
+                    <textField focusRingType="none" verticalHuggingPriority="750" horizontalCompressionResistancePriority="250" preferredMaxLayoutWidth="192" translatesAutoresizingMaskIntoConstraints="NO" id="40">
+                        <rect key="frame" x="6" y="113" width="233" height="14"/>
+                        <textFieldCell key="cell" controlSize="small" sendsActionOnEndEditing="YES" alignment="center" title="Informational Text" id="69">
+                            <font key="font" metaFont="smallSystem"/>
+                            <color key="textColor" name="SpecialTextColor"/>
+                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <button imageHugsTitle="YES" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="58">
+                        <rect key="frame" x="81" y="76" width="83" height="32"/>
+                        <buttonCell key="cell" type="push" title="Rename" bezelStyle="rounded" alignment="center" borderStyle="border" inset="2" id="70">
+                            <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                            <font key="font" metaFont="system"/>
+                        </buttonCell>
+                        <connections>
+                            <action selector="renameObjectAction:" target="-2" id="59"/>
+                        </connections>
+                    </button>
+                </subviews>
+                <constraints>
+                    <constraint firstItem="14" firstAttribute="top" secondItem="8" secondAttribute="bottom" constant="8" symbolic="YES" id="7sB-Zk-C0O"/>
+                    <constraint firstItem="12" firstAttribute="leading" relation="greaterThanOrEqual" secondItem="6" secondAttribute="leading" constant="20" symbolic="YES" id="8A7-ig-dUd"/>
+                    <constraint firstItem="40" firstAttribute="leading" secondItem="6" secondAttribute="leading" constant="8" id="APp-EC-m7J"/>
+                    <constraint firstItem="14" firstAttribute="firstBaseline" secondItem="13" secondAttribute="firstBaseline" id="HdR-5v-DQ7"/>
+                    <constraint firstItem="40" firstAttribute="top" secondItem="6" secondAttribute="top" constant="5" id="K63-mi-sOh"/>
+                    <constraint firstItem="8" firstAttribute="top" secondItem="58" secondAttribute="bottom" constant="20" symbolic="YES" id="N6i-Ey-mas"/>
+                    <constraint firstItem="14" firstAttribute="leading" secondItem="8" secondAttribute="leading" id="Swz-1o-dcd"/>
+                    <constraint firstItem="58" firstAttribute="centerX" secondItem="6" secondAttribute="centerX" id="Vi5-My-wtz"/>
+                    <constraint firstItem="40" firstAttribute="centerX" secondItem="6" secondAttribute="centerX" id="bH7-eF-Vfh"/>
+                    <constraint firstItem="8" firstAttribute="leading" secondItem="12" secondAttribute="trailing" constant="8" symbolic="YES" id="dLh-An-fvW"/>
+                    <constraint firstAttribute="trailing" secondItem="8" secondAttribute="trailing" constant="20" symbolic="YES" id="fMe-Rq-XSf"/>
+                    <constraint firstItem="58" firstAttribute="top" secondItem="40" secondAttribute="bottom" constant="10" id="h8e-vb-eGA"/>
+                    <constraint firstAttribute="bottom" secondItem="14" secondAttribute="bottom" constant="20" symbolic="YES" id="nHo-c4-trh"/>
+                    <constraint firstItem="14" firstAttribute="trailing" secondItem="8" secondAttribute="trailing" id="pLr-Hv-Wi7"/>
+                    <constraint firstItem="13" firstAttribute="trailing" secondItem="12" secondAttribute="trailing" id="sVB-XU-TVQ"/>
+                    <constraint firstItem="13" firstAttribute="leading" relation="greaterThanOrEqual" secondItem="6" secondAttribute="leading" constant="20" symbolic="YES" id="wYQ-tr-BYq"/>
+                    <constraint firstItem="8" firstAttribute="firstBaseline" secondItem="12" secondAttribute="firstBaseline" id="xR3-TU-dta"/>
+                </constraints>
+            </view>
+            <connections>
+                <outlet property="delegate" destination="-2" id="60"/>
+                <outlet property="initialFirstResponder" destination="8" id="61"/>
+            </connections>
+            <point key="canvasLocation" x="119.5" y="147.5"/>
+        </window>
+        <window title="Window" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" releasedWhenClosed="NO" visibleAtLaunch="NO" animationBehavior="default" id="52" userLabel="RenameSheet">
+            <windowStyleMask key="styleMask" titled="YES" closable="YES" miniaturizable="YES" resizable="YES"/>
+            <windowPositionMask key="initialPositionMask" leftStrut="YES" rightStrut="YES" topStrut="YES" bottomStrut="YES"/>
+            <rect key="contentRect" x="155" y="283" width="367" height="127"/>
+            <rect key="screenRect" x="0.0" y="0.0" width="1512" height="944"/>
+            <view key="contentView" id="47">
+                <rect key="frame" x="0.0" y="0.0" width="367" height="113"/>
+                <autoresizingMask key="autoresizingMask"/>
+                <subviews>
+                    <textField focusRingType="none" verticalHuggingPriority="750" horizontalCompressionResistancePriority="250" setsMaxLayoutWidthAtFirstLayout="YES" translatesAutoresizingMaskIntoConstraints="NO" id="50">
+                        <rect key="frame" x="18" y="77" width="218" height="16"/>
+                        <textFieldCell key="cell" sendsActionOnEndEditing="YES" alignment="left" title="Please enter a name for this object:" id="73">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <textField focusRingType="none" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="48">
+                        <rect key="frame" x="20" y="48" width="327" height="21"/>
+                        <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" alignment="left" drawsBackground="YES" id="71">
+                            <font key="font" metaFont="system"/>
+                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <button imageHugsTitle="YES" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="51">
+                        <rect key="frame" x="278" y="13" width="76" height="32"/>
+                        <buttonCell key="cell" type="push" title="Apply" bezelStyle="rounded" alignment="center" borderStyle="border" inset="2" id="74">
+                            <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                            <font key="font" metaFont="system"/>
+                            <string key="keyEquivalent" base64-UTF8="YES">
+DQ
+</string>
+                        </buttonCell>
+                        <connections>
+                            <action selector="renameSheetApplyAction:" target="-2" id="53"/>
+                        </connections>
+                    </button>
+                    <button imageHugsTitle="YES" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="49">
+                        <rect key="frame" x="204" y="13" width="76" height="32"/>
+                        <buttonCell key="cell" type="push" title="Cancel" bezelStyle="rounded" alignment="center" borderStyle="border" inset="2" id="72">
+                            <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                            <font key="font" metaFont="system"/>
+                            <string key="keyEquivalent" base64-UTF8="YES">
+Gw
+</string>
+                        </buttonCell>
+                        <connections>
+                            <action selector="renameSheetCancelAction:" target="-2" id="54"/>
+                        </connections>
+                    </button>
+                </subviews>
+                <constraints>
+                    <constraint firstAttribute="trailing" secondItem="51" secondAttribute="trailing" constant="20" symbolic="YES" id="65f-NO-KpA"/>
+                    <constraint firstItem="49" firstAttribute="leading" relation="greaterThanOrEqual" secondItem="47" secondAttribute="leading" constant="20" symbolic="YES" id="G7E-wK-G7D"/>
+                    <constraint firstAttribute="bottom" secondItem="51" secondAttribute="bottom" constant="20" symbolic="YES" id="N3l-MX-hlX"/>
+                    <constraint firstAttribute="trailing" relation="greaterThanOrEqual" secondItem="50" secondAttribute="trailing" constant="20" symbolic="YES" id="YZL-Rc-gX3"/>
+                    <constraint firstItem="48" firstAttribute="centerX" secondItem="47" secondAttribute="centerX" id="fAm-AK-HWS"/>
+                    <constraint firstItem="51" firstAttribute="width" secondItem="49" secondAttribute="width" id="jbA-gA-Ebb"/>
+                    <constraint firstItem="51" firstAttribute="top" secondItem="48" secondAttribute="bottom" constant="8" symbolic="YES" id="jjE-m8-Sjs"/>
+                    <constraint firstItem="48" firstAttribute="top" secondItem="50" secondAttribute="bottom" constant="8" symbolic="YES" id="orT-Fs-UFe"/>
+                    <constraint firstItem="50" firstAttribute="top" secondItem="47" secondAttribute="top" constant="20" symbolic="YES" id="ov3-2B-W4W"/>
+                    <constraint firstItem="51" firstAttribute="leading" secondItem="49" secondAttribute="trailing" constant="12" symbolic="YES" id="rDy-9z-VrE"/>
+                    <constraint firstItem="50" firstAttribute="leading" secondItem="47" secondAttribute="leading" constant="20" symbolic="YES" id="sDb-0p-bJK"/>
+                    <constraint firstItem="48" firstAttribute="leading" secondItem="47" secondAttribute="leading" constant="20" symbolic="YES" id="wGn-hn-0Gq"/>
+                    <constraint firstItem="51" firstAttribute="firstBaseline" secondItem="49" secondAttribute="firstBaseline" id="wTa-Ey-Q08"/>
+                </constraints>
+            </view>
+            <point key="canvasLocation" x="139" y="368"/>
+        </window>
+    </objects>
+    <resources>
+        <namedColor name="SpecialTextColor">
+            <color red="0.19200000166893005" green="0.12399999797344208" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+        </namedColor>
+    </resources>
+</document>
