@@ -11,7 +11,6 @@
 		55166FA429EB67DB00B1E5CA /* TextureRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55166FA329EB67DB00B1E5CA /* TextureRepository.swift */; };
 		553A981924705758003B6AEC /* GLKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 553A981824705758003B6AEC /* GLKit.framework */; };
 		557A9B3F245A617B00527063 /* Media.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 557A9B3E245A617B00527063 /* Media.xcassets */; };
-		557A9B41245A922B00527063 /* Example Script.applescript in Sources */ = {isa = PBXBuildFile; fileRef = 557A9B40245A922A00527063 /* Example Script.applescript */; };
 		557A9B43245A924700527063 /* Pfhorge.sdef in Resources */ = {isa = PBXBuildFile; fileRef = 557A9B42245A924700527063 /* Pfhorge.sdef */; };
 		559A56132CB3395400B35598 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 559A56122CB3395400B35598 /* Localizable.xcstrings */; };
 		559A56152CB3395400B35598 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 559A56142CB3395400B35598 /* InfoPlist.xcstrings */; };
@@ -892,7 +891,6 @@
 				AE3C154F0A04512100FBFFCD /* LEMap.m in Sources */,
 				AE3C15500A04512100FBFFCD /* LEExtras.m in Sources */,
 				AE3C15510A04512100FBFFCD /* LEMapStuffParent.m in Sources */,
-				557A9B41245A922B00527063 /* Example Script.applescript in Sources */,
 				AE3C15530A04512100FBFFCD /* LEPaletteController.m in Sources */,
 				AE3C15540A04512100FBFFCD /* LEDelegate.m in Sources */,
 				AE3C15550A04512100FBFFCD /* LELevelWindowController.m in Sources */,
