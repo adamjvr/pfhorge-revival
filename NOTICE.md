@@ -4,27 +4,47 @@
 
 Pfhorge was created by **Joshua D. Orr**. The surviving source includes original
 copyright notices beginning in 2001 and grants redistribution and modification
-under the GNU General Public License, version 2 or any later version.
+under GNU GPL version 2 or, at the recipient's option, any later version.
 
-The original notices in imported files must remain intact. Git history should be
-preserved wherever practical so authorship and provenance remain traceable.
+Original copyright and license notices in inherited files must remain intact.
+The repository is distributed as a combined work under GPL-3.0-or-later, while
+preserving the valid original notices on individual files.
 
 ## Pfhorge Revival
 
 Revival infrastructure and new work beginning in 2026 are maintained by
-**Adam Vadala-Roth** and project contributors. New files should identify their
-license using:
+**Adam Vadala-Roth** and project contributors.
+
+New revival-owned files should use:
 
 ```text
-SPDX-License-Identifier: GPL-2.0-or-later
+SPDX-License-Identifier: GPL-3.0-or-later
 ```
 
-A contributor should add a copyright notice only where they have made a
-copyrightable contribution. Existing notices must not be removed or replaced.
+A contributor should add a copyright notice only for a copyrightable
+contribution they made. Existing notices must not be removed or replaced.
 
-## Third-party material
+## Aleph One integration
+
+Visual Mode work may adapt selected rendering and map-semantics code from:
+
+- Project: Aleph One
+- Upstream: `Aleph-One-Marathon/alephone`
+- License: GNU GPL version 3 or later
+- Scope: portal visibility, clipping, surface construction, texture semantics,
+  transfer modes, lighting, landscapes, media, and sprite behavior
+
+Every imported or adapted file must identify its upstream path and exact commit
+in a nearby provenance comment or in
+`docs/revival/ALEPH-ONE-INTEGRATION.md`.
+
+Pfhorge Revival will not import the Aleph One application shell, networking,
+gameplay, AI, HUD, audio loop, or SDL window management merely to provide an
+editor preview.
+
+## Third-party game data
 
 Marathon scenarios, Shapes files, sounds, terminal artwork, and other game data
 may have separate copyright and redistribution terms. Do not commit proprietary
-Bungie assets or community content unless its license or permission clearly
+Bungie assets or community content unless its license or explicit permission
 allows redistribution.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Adam Vadala-Roth
 
 """Convert an xcodebuild transcript into compact JSON and Markdown reports."""
