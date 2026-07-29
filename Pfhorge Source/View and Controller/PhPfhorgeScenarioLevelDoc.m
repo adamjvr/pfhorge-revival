@@ -31,6 +31,8 @@
 #import "Resource.h"
 #import "Pfhorge-Swift.h"
 
+#include "../Map Intake/Cocoa/PfhorgeMarathonMapIntakeBridge.inc"
+
 #import "PhProgress.h"
 
 #import "LEMapData.h"
@@ -127,13 +129,15 @@
 
 - (IBAction)importMarathonMap:(id)sender
 {
-    NSArray	*fileTypes	= @[NSFileTypeForHFSTypeCode('sce2'), NSFileTypeForHFSTypeCode(0x736365B0) /*'sce∞'*/, @"org.bungie.source.map"];
-    NSOpenPanel	*op		= [NSOpenPanel openPanel];
+    NSOpenPanel *op = [NSOpenPanel openPanel];
     
     [op	setAllowsMultipleSelection:NO];
-    [op setTitle:NSLocalizedString(@"Import Marathon Wad", @"Import Marathon Wad")];
+    [op setTitle:NSLocalizedString(@"Import Marathon Map", @"Import Marathon Map")];
     [op setPrompt:NSLocalizedString(@"Import", @"Import")];
-    op.allowedFileTypes = fileTypes;
+    // Extensions and Finder type codes are hints only. The byte-level probe
+    // validates the selected source before it reaches the semantic importer.
+    op.allowedFileTypes = nil;
+    [op setAllowsOtherFileTypes:YES];
 
     [op beginSheetModalForWindow:[self windowForSheet] completionHandler:^(NSModalResponse result) {
         NSString    *fileName = nil;
@@ -152,15 +156,43 @@
             ScenarioResources *maraResources;
             NSURL *fileURL = op.URL;
             fileName = fileURL.path;
-            
-            if ([ScenarioResources isAppleSingleAtURL:fileURL findResourceFork:YES offset:NULL length:NULL] ||
-                [ScenarioResources isAppleSingleAtURL:fileURL findResourceFork:NO offset:NULL length:NULL] ||
-                [ScenarioResources isMacBinaryAtURL:fileURL dataLength:NULL resourceLength:NULL]) {
-                // TODO: better error reported.
-                [self presentError:[NSError errorWithDomain:NSCocoaErrorDomain code:NSFileReadCorruptFileError userInfo:@{NSURLErrorKey: fileURL, NSLocalizedFailureReasonErrorKey: NSLocalizedString(@"AppleSingle/MacBinary-encoded maps are not supported yet.", @"AppleSingle/MacBinary-encoded maps are not supported yet.")}]];
+
+            NSData *resolvedMapData = nil;
+            NSData *resolvedResourceData = nil;
+            PfhMapSourceEnvelopeKind envelopeKind = PfhMapSourceEnvelopeRaw;
+            NSString *sourceDescription = nil;
+            NSString *finderType = nil;
+            NSError *intakeError = nil;
+
+            if (!PfhorgeResolveMarathonSourceURL(
+                    fileURL,
+                    &resolvedMapData,
+                    &resolvedResourceData,
+                    &envelopeKind,
+                    &sourceDescription,
+                    &finderType,
+                    &intakeError)) {
+                [self presentError:intakeError];
                 return;
             }
-            
+
+            PfhMapProbeResult mapProbe = {0};
+            if (!PfhorgeProbeResolvedMapData(
+                    resolvedMapData,
+                    &mapProbe,
+                    &intakeError)) {
+                [self presentError:intakeError];
+                return;
+            }
+
+            if (!PfhorgeConfirmMapIdentification(
+                    [self windowForSheet],
+                    &mapProbe,
+                    sourceDescription,
+                    finderType,
+                    resolvedResourceData.length)) {
+                return;
+            }
             [progress setMinProgress:0.0];
             [progress setMaxProgress:100.0];
             [progress setProgressPostion:0.0];
@@ -168,11 +200,37 @@
             [progress setInformationalText:@"Loading Marathon Data Into Memory…"];
             [progress showWindow:self];
             
-            maraResources = [[ScenarioResources alloc] initWithContentsOfURL:fileURL error:NULL];
-            
-            archivedLevels = [LEMapData
-                convertMarathonDataToArchived:[NSData dataWithContentsOfURL:fileURL]
-                                   levelNames:levelNames error:NULL];
+            // Raw/native files can still use ScenarioResources directly.
+            // Resource forks extracted from AppleSingle/Double/MacBinary are
+            // retained by intake and will be decoded in the resource phase.
+            maraResources = nil;
+            if (envelopeKind == PfhMapSourceEnvelopeRaw) {
+                maraResources =
+                    [[ScenarioResources alloc]
+                        initWithContentsOfURL:fileURL
+                                       error:NULL];
+            }
+            NSError *conversionError = nil;
+            archivedLevels =
+                [LEMapData
+                    convertMarathonDataToArchived:resolvedMapData
+                    levelNames:levelNames
+                    error:&conversionError];
+
+            if (archivedLevels.count == 0) {
+                [progress orderOutWin:self];
+
+                if (conversionError == nil) {
+                    conversionError = PfhorgeMapIntakeError(
+                        fileURL,
+                        NSLocalizedString(
+                            @"The Marathon container was structurally valid, but no levels could be converted.",
+                            @"Valid map contained no convertible levels"));
+                }
+
+                [self presentError:conversionError];
+                return;
+            }
                                    
             [progress setStatusText:@"Saving All The Levels…"];
             
