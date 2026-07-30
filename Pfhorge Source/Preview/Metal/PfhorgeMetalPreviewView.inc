@@ -236,6 +236,7 @@ fragment float4 pfhorgePreviewFragment(
 - (void)visualModeSettingsDidChange:(NSNotification *)notification;
 - (void)windowDidBecomeKey:(NSNotification *)notification;
 - (void)windowDidResignKey:(NSNotification *)notification;
+- (void)windowDidChangeScreen:(NSNotification *)notification;
 - (unichar)configuredKeyForPreference:(NSString *)preference fallback:(unichar)fallback;
 - (BOOL)pressedPreference:(NSString *)preference fallback:(unichar)fallback;
 - (void)clearPressedKeys;
@@ -379,6 +380,11 @@ fragment float4 pfhorgePreviewFragment(
            selector:@selector(windowDidResignKey:)
                name:NSWindowDidResignKeyNotification
              object:self.window];
+    [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(windowDidChangeScreen:)
+               name:NSWindowDidChangeScreenNotification
+             object:nil];
 
     return self;
 }
@@ -494,13 +500,10 @@ fragment float4 pfhorgePreviewFragment(
         0.25F,
         2.0F);
 
-    NSInteger requestedFrames =
-        [defaults integerForKey:PfhorgeVMFrameRatePreference];
-    if (requestedFrames != 30 && requestedFrames != 60 &&
-        requestedFrames != 120) {
-        requestedFrames = 60;
-    }
-    self.preferredFramesPerSecond = requestedFrames;
+    // CONTENT-1A.2 dynamic display frame rate. A stored value of zero
+    // means follow the current screen's maximum refresh rate.
+    self.preferredFramesPerSecond = PfhorgeResolvedVisualModeFrameRate(
+        self.window.screen ?: NSApp.mainWindow.screen ?: NSScreen.mainScreen);
 
     NSInteger requestedSamples =
         [defaults integerForKey:PfhorgeVMMSAASampleCountPreference];
@@ -560,6 +563,17 @@ fragment float4 pfhorgePreviewFragment(
     if (notification.object == self.window) {
         [self clearPressedKeys];
     }
+}
+
+- (void)windowDidChangeScreen:(NSNotification *)notification
+{
+    if (notification.object != self.window) {
+        return;
+    }
+
+    // Re-resolve Display Maximum whenever the Visual Mode window moves
+    // between monitors, including ProMotion and 240 Hz external displays.
+    [self applyVisualModeSettings];
 }
 
 - (unichar)configuredKeyForPreference:(NSString *)preference

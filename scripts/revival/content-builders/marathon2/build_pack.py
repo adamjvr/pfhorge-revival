@@ -23,6 +23,19 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+
+def emit_progress(phase: str, label: str, fraction=None,
+                  *, indeterminate: bool = False, **details: object) -> None:
+    payload: dict[str, object] = {
+        "phase": phase,
+        "label": label,
+        "indeterminate": indeterminate,
+    }
+    if fraction is not None:
+        payload["fraction"] = max(0.0, min(1.0, float(fraction)))
+    payload.update(details)
+    print("PFHORGE_PROGRESS " + json.dumps(payload, separators=(",", ":")), flush=True)
+
 CONFIG = {
   "display_name": "Marathon 2: Durandal CFP Complete HD Pack",
   "game_name": "Marathon 2: Durandal",
@@ -458,6 +471,8 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
 
+    emit_progress("resolve", "Resolving enhanced texture sources…", 0.02)
+
     work_parent = Path.cwd() if args.keep_work else Path(tempfile.mkdtemp(prefix="cfp-pack-"))
     package_root = work_parent / CONFIG["package_root"]
     if package_root.exists():
@@ -467,24 +482,42 @@ def main() -> int:
 
     records: list[dict] = []
     try:
-        for component in CONFIG["components"]:
+        component_count = max(1, len(CONFIG["components"]))
+        for component_index, component in enumerate(CONFIG["components"]):
+            base_fraction = 0.05 + (component_index / component_count) * 0.64
+            emit_progress(
+                "download",
+                f"Downloading {component['name']} ({component_index + 1}/{component_count})…",
+                base_fraction,
+                indeterminate=True,
+                item=component_index + 1,
+                items=component_count,
+            )
             archive = download_component(component, cache_dir)
+            emit_progress(
+                "verify-source",
+                f"Verifying {component['name']}…",
+                base_fraction + (0.35 / component_count),
+            )
             archive_sha = sha256_file(archive)
             extracted = work_parent / ("extract-" + component["folder"])
             if extracted.exists():
                 shutil.rmtree(extracted)
+            emit_progress("extract", f"Extracting {component['name']}…", base_fraction + (0.48 / component_count))
             safe_extract(archive, extracted)
             destination = plugins_root / component["folder"]
             flatten_single_root(extracted, destination)
             (destination / "CREDITS.md").write_text(
                 component_credits(component, archive_sha), encoding="utf-8"
             )
+            emit_progress("assemble", f"Adding {component['name']} to the profile…", base_fraction + (0.62 / component_count))
             records.append({
                 "component": component,
                 "archive": archive.name,
                 "archive_sha256": archive_sha,
             })
 
+        emit_progress("document", "Writing credits, rights notices, and manifests…", 0.74)
         (package_root / "README.md").write_text(build_readme(), encoding="utf-8")
         (package_root / "ATTRIBUTION.md").write_text(build_attribution(), encoding="utf-8")
         (package_root / "SOURCES.md").write_text(build_sources(records), encoding="utf-8")
@@ -508,10 +541,13 @@ def main() -> int:
 
         final_zip = output_dir / CONFIG["output_zip"]
         final_zip.unlink(missing_ok=True)
+        emit_progress("package", "Packaging enhanced texture profile…", 0.90)
         print(f"[pack]   {final_zip}")
         zip_tree(package_root, final_zip)
+        emit_progress("verify", "Verifying generated texture profile…", 0.97)
         print(f"[done]   {final_zip}")
         print(f"[sha256] {sha256_file(final_zip)}")
+        emit_progress("complete", "Enhanced texture profile built successfully", 1.0)
         return 0
     finally:
         if not args.keep_work and work_parent.exists():

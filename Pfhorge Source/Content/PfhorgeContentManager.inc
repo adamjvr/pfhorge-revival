@@ -9,10 +9,11 @@
 #import <objc/message.h>
 #import <Metal/Metal.h>
 #include <math.h>
+#include <signal.h>
 
 #import "PfhorgeVisualModeSettings.h"
 
-static NSString *const PfhorgeContentManifestSchemaVersion = @"2";
+static NSString *const PfhorgeContentManifestSchemaVersion = @"3";
 static NSString *const PfhorgeContentSelectedProfileKey = @"selectedProfile";
 static NSString *const PfhorgeContentActiveGamePreference = @"PfhorgeContentActiveGame";
 static NSString *const PfhorgeContentActiveEnhancedPathPreference = @"PfhorgeContentActiveEnhancedPath";
@@ -885,6 +886,38 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
     return field;
 }
 
+
+static NSTextField *PfhorgeContentPathField(NSRect frame)
+{
+    NSTextField *field = [[NSTextField alloc] initWithFrame:frame];
+    field.editable = NO;
+    field.selectable = YES;
+    field.bezeled = YES;
+    field.drawsBackground = YES;
+    field.font = [NSFont userFixedPitchFontOfSize:10.5];
+    field.lineBreakMode = NSLineBreakByTruncatingMiddle;
+    field.usesSingleLineMode = YES;
+    field.placeholderString = @"Not installed";
+    return field;
+}
+
+static void PfhorgeTerminateTaskTree(NSTask *task)
+{
+    if (task == nil || !task.isRunning) return;
+    const pid_t processIdentifier = task.processIdentifier;
+    if (processIdentifier > 0 &&
+        [[NSFileManager defaultManager] isExecutableFileAtPath:@"/usr/bin/pkill"]) {
+        NSTask *killer = [[NSTask alloc] init];
+        killer.executableURL = [NSURL fileURLWithPath:@"/usr/bin/pkill"];
+        killer.arguments = @[@"-TERM", @"-P",
+            [NSString stringWithFormat:@"%d", processIdentifier]];
+        killer.standardOutput = [NSPipe pipe];
+        killer.standardError = [NSPipe pipe];
+        [killer launchAndReturnError:nil];
+    }
+    [task terminate];
+}
+
 @class PfhorgeContentManagerController;
 
 @interface PfhorgeVisualModeSettingsController : NSWindowController
@@ -894,6 +927,8 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
 - (NSView *)buildDisplayView:(NSRect)frame;
 - (NSView *)buildContentView:(NSRect)frame;
 - (NSView *)buildDiagnosticsView:(NSRect)frame;
+- (void)refreshFrameRateOptionsPreservingSelection:(BOOL)preserve;
+- (void)settingsWindowDidChangeScreen:(NSNotification *)notification;
 @end
 
 @interface PfhorgeContentManagerController : NSWindowController
@@ -904,6 +939,11 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
                                       python:(NSString *)python;
 - (void)finishRecommendedEnhancedBuild:(NSTask *)task
                                  recipe:(NSDictionary *)recipe;
+- (void)continuePendingEnhancedInstallIfReadyForGame:(NSString *)gameKey;
+- (void)consumeBuilderOutputData:(NSData *)data;
+- (void)refreshSelectedGame;
+- (void)selectGameKey:(NSString *)gameKey;
+- (void)clearPendingEnhancedInstall;
 @end
 
 @implementation PfhorgeContentManagerController {
@@ -912,6 +952,8 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
     NSTextField *_statusField;
     NSTextField *_originalStatusField;
     NSTextField *_enhancedStatusField;
+    NSTextField *_originalPathField;
+    NSTextField *_enhancedPathField;
     NSPopUpButton *_profilePopup;
     NSProgressIndicator *_progress;
     NSTextField *_progressLabel;
@@ -925,9 +967,16 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
     NSString *_downloadReleaseTag;
     NSTask *_builderTask;
     NSFileHandle *_builderLogHandle;
+    NSPipe *_builderOutputPipe;
+    NSFileHandle *_builderOutputReadHandle;
+    NSMutableData *_builderOutputBuffer;
     NSURL *_builderLogURL;
     NSURL *_builderOutputURL;
     NSString *_builderGameKey;
+    NSString *_pendingEnhancedGameKey;
+    NSDictionary *_pendingEnhancedRecipe;
+    NSURL *_pendingEnhancedScript;
+    NSString *_pendingEnhancedPython;
     BOOL _refreshingGame;
 }
 
@@ -944,7 +993,7 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
 - (instancetype)init
 {
     NSWindow *window = [[NSWindow alloc]
-        initWithContentRect:NSMakeRect(0, 0, 920, 620)
+        initWithContentRect:NSMakeRect(0, 0, 1080, 720)
                   styleMask:NSWindowStyleMaskTitled |
                             NSWindowStyleMaskClosable |
                             NSWindowStyleMaskMiniaturizable |
@@ -952,20 +1001,20 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
                     backing:NSBackingStoreBuffered
                       defer:NO];
     window.title = @"Pfhorge Content Manager";
-    window.minSize = NSMakeSize(860, 580);
+    window.minSize = NSMakeSize(1000, 680);
 
     self = [super initWithWindow:window];
     if (self == nil) return nil;
     PfhorgeEnsureDirectory(PfhorgeContentRootURL(), nil);
 
     NSView *content = window.contentView;
-    NSScrollView *sidebar = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 220, 620)];
+    NSScrollView *sidebar = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, 230, 720)];
     sidebar.autoresizingMask = NSViewHeightSizable;
     sidebar.hasVerticalScroller = YES;
     sidebar.borderType = NSBezelBorder;
     _gameTable = [[NSTableView alloc] initWithFrame:sidebar.bounds];
     NSTableColumn *column = [[NSTableColumn alloc] initWithIdentifier:@"game"];
-    column.width = 216;
+    column.width = 226;
     [_gameTable addTableColumn:column];
     _gameTable.headerView = nil;
     _gameTable.rowHeight = 66;
@@ -974,98 +1023,102 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
     sidebar.documentView = _gameTable;
     [content addSubview:sidebar];
 
-    const CGFloat x = 244.0;
-    _titleField = PfhorgeLabel(NSMakeRect(x, 566, 640, 34), @"", 24, YES);
+    const CGFloat x = 252.0;
+    const CGFloat width = 800.0;
+    _titleField = PfhorgeLabel(NSMakeRect(x, 666, width, 34), @"", 24, YES);
     _titleField.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
     [content addSubview:_titleField];
 
-    NSTextField *intro = PfhorgeLabel(NSMakeRect(x, 530, 640, 30),
-        @"Choose the authentic original game appearance, an enhanced replacement pack, or a custom source. Enhanced artwork always falls back to the selected original Shapes file.", 12, NO);
+    NSTextField *intro = PfhorgeLabel(NSMakeRect(x, 626, width, 34),
+        @"Base Shapes data is required. Original uses the images inside Shapes; Enhanced layers optional replacements over the same catalog and falls back to Shapes for anything it does not replace.", 12, NO);
     intro.usesSingleLineMode = NO;
     intro.lineBreakMode = NSLineBreakByWordWrapping;
     intro.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
     [content addSubview:intro];
 
-    NSBox *originalBox = [[NSBox alloc] initWithFrame:NSMakeRect(x, 354, 642, 164)];
-    originalBox.title = @"Original game appearance";
+    NSBox *originalBox = [[NSBox alloc] initWithFrame:NSMakeRect(x, 392, width, 222)];
+    originalBox.title = @"Base game data / Shapes — Required";
     originalBox.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
-    _originalStatusField = PfhorgeLabel(NSMakeRect(18, 55, 600, 80), @"", 12, NO);
+    _originalStatusField = PfhorgeLabel(NSMakeRect(18, 132, 760, 56), @"", 12, NO);
     _originalStatusField.usesSingleLineMode = NO;
     _originalStatusField.lineBreakMode = NSLineBreakByWordWrapping;
     [originalBox.contentView addSubview:_originalStatusField];
-    _installButton = [[NSButton alloc] initWithFrame:NSMakeRect(18, 14, 204, 32)];
-    _installButton.title = @"Install Official Original…";
-    _installButton.bezelStyle = NSBezelStyleRounded;
-    _installButton.target = self;
-    _installButton.action = @selector(installOfficial:);
-    [originalBox.contentView addSubview:_installButton];
-    NSButton *choose = [[NSButton alloc] initWithFrame:NSMakeRect(232, 14, 180, 32)];
-    choose.title = @"Choose Existing…";
-    choose.bezelStyle = NSBezelStyleRounded;
-    choose.target = self;
-    choose.action = @selector(chooseExisting:);
-    [originalBox.contentView addSubview:choose];
+    [originalBox.contentView addSubview:PfhorgeLabel(NSMakeRect(18, 101, 100, 22), @"Shapes file:", 11, YES)];
+    _originalPathField = PfhorgeContentPathField(NSMakeRect(118, 97, 660, 27));
+    [originalBox.contentView addSubview:_originalPathField];
+
+    NSArray *originalButtons = @[
+        @[@"Install / Reinstall Official…", NSStringFromSelector(@selector(installOfficial:)), @18, @210],
+        @[@"Choose Existing…", NSStringFromSelector(@selector(chooseExisting:)), @238, @140],
+        @[@"Find Existing…", NSStringFromSelector(@selector(scanThisMac:)), @388, @125],
+        @[@"Verify", NSStringFromSelector(@selector(verifyOriginal:)), @523, @72],
+        @[@"Reveal", NSStringFromSelector(@selector(revealOriginalContent:)), @605, @72],
+        @[@"Copy Path", NSStringFromSelector(@selector(copyOriginalPath:)), @687, @91],
+    ];
+    for (NSArray *definition in originalButtons) {
+        NSButton *button = [[NSButton alloc] initWithFrame:NSMakeRect(
+            [definition[2] doubleValue], 18, [definition[3] doubleValue], 32)];
+        button.title = definition[0];
+        button.bezelStyle = NSBezelStyleRounded;
+        button.target = self;
+        button.action = NSSelectorFromString(definition[1]);
+        [originalBox.contentView addSubview:button];
+        if (button.action == @selector(installOfficial:)) _installButton = button;
+    }
     [content addSubview:originalBox];
 
-    NSBox *enhancedBox = [[NSBox alloc] initWithFrame:NSMakeRect(x, 196, 642, 146)];
-    enhancedBox.title = @"Enhanced appearance (optional)";
+    NSBox *enhancedBox = [[NSBox alloc] initWithFrame:NSMakeRect(x, 177, width, 203)];
+    enhancedBox.title = @"Enhanced texture appearance — Optional";
     enhancedBox.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
-    _enhancedStatusField = PfhorgeLabel(NSMakeRect(18, 50, 600, 68), @"", 12, NO);
+    _enhancedStatusField = PfhorgeLabel(NSMakeRect(18, 112, 760, 56), @"", 12, NO);
     _enhancedStatusField.usesSingleLineMode = NO;
     _enhancedStatusField.lineBreakMode = NSLineBreakByWordWrapping;
     [enhancedBox.contentView addSubview:_enhancedStatusField];
-    _installEnhancedButton = [[NSButton alloc] initWithFrame:NSMakeRect(18, 10, 250, 32)];
-    _installEnhancedButton.title = @"Install Recommended Enhanced…";
-    _installEnhancedButton.bezelStyle = NSBezelStyleRounded;
-    _installEnhancedButton.target = self;
-    _installEnhancedButton.action = @selector(installRecommendedEnhanced:);
-    [enhancedBox.contentView addSubview:_installEnhancedButton];
-    NSButton *import = [[NSButton alloc] initWithFrame:NSMakeRect(278, 10, 190, 32)];
-    import.title = @"Import Enhanced Pack…";
-    import.bezelStyle = NSBezelStyleRounded;
-    import.target = self;
-    import.action = @selector(importTexturePack:);
-    [enhancedBox.contentView addSubview:import];
+    [enhancedBox.contentView addSubview:PfhorgeLabel(NSMakeRect(18, 81, 100, 22), @"Profile path:", 11, YES)];
+    _enhancedPathField = PfhorgeContentPathField(NSMakeRect(118, 77, 660, 27));
+    [enhancedBox.contentView addSubview:_enhancedPathField];
+
+    NSArray *enhancedButtons = @[
+        @[@"Install / Rebuild Recommended…", NSStringFromSelector(@selector(installRecommendedEnhanced:)), @18, @224],
+        @[@"Import Custom…", NSStringFromSelector(@selector(importTexturePack:)), @252, @128],
+        @[@"Verify", NSStringFromSelector(@selector(verifyEnhanced:)), @390, @72],
+        @[@"Reveal", NSStringFromSelector(@selector(revealEnhancedContent:)), @472, @72],
+        @[@"Copy Path", NSStringFromSelector(@selector(copyEnhancedPath:)), @554, @91],
+        @[@"Remove…", NSStringFromSelector(@selector(removeEnhancedProfile:)), @655, @95],
+    ];
+    for (NSArray *definition in enhancedButtons) {
+        NSButton *button = [[NSButton alloc] initWithFrame:NSMakeRect(
+            [definition[2] doubleValue], 18, [definition[3] doubleValue], 32)];
+        button.title = definition[0];
+        button.bezelStyle = NSBezelStyleRounded;
+        button.target = self;
+        button.action = NSSelectorFromString(definition[1]);
+        [enhancedBox.contentView addSubview:button];
+        if (button.action == @selector(installRecommendedEnhanced:)) _installEnhancedButton = button;
+    }
     [content addSubview:enhancedBox];
 
-    [content addSubview:PfhorgeLabel(NSMakeRect(x, 153, 136, 24), @"Active appearance:", 13, YES)];
-    _profilePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(x + 140, 149, 220, 30) pullsDown:NO];
+    [content addSubview:PfhorgeLabel(NSMakeRect(x, 137, 136, 24), @"Active appearance:", 13, YES)];
+    _profilePopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(x + 140, 133, 240, 30) pullsDown:NO];
     [_profilePopup addItemsWithTitles:@[@"Original", @"Enhanced", @"Custom", @"Untextured Diagnostic"]];
     _profilePopup.target = self;
     _profilePopup.action = @selector(profileChanged:);
     [content addSubview:_profilePopup];
 
-    NSPopUpButton *advanced = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(x + 382, 149, 210, 30) pullsDown:YES];
-    [advanced addItemWithTitle:@"Advanced Actions"];
-    NSArray *advancedItems = @[
-        @[@"Scan This Mac…", NSStringFromSelector(@selector(scanThisMac:))],
-        @[@"Verify Registered Content", NSStringFromSelector(@selector(verifyContent:))],
-        @[@"Repair / Reinstall…", NSStringFromSelector(@selector(repairContent:))],
-        @[@"Reveal Content in Finder", NSStringFromSelector(@selector(revealContent:))],
-        @[@"Open Manifest…", NSStringFromSelector(@selector(openManifest:))],
-        @[@"Remove / Unregister…", NSStringFromSelector(@selector(removeContent:))],
-    ];
-    for (NSArray *definition in advancedItems) {
-        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:definition[0]
-                                                     action:NSSelectorFromString(definition[1])
-                                              keyEquivalent:@""];
-        item.target = self;
-        [advanced.menu addItem:item];
-    }
-    [content addSubview:advanced];
-
-    _statusField = PfhorgeLabel(NSMakeRect(x, 100, 642, 42), @"", 11, NO);
+    _statusField = PfhorgeLabel(NSMakeRect(x + 395, 126, 405, 40), @"", 11, NO);
     _statusField.usesSingleLineMode = NO;
     _statusField.lineBreakMode = NSLineBreakByWordWrapping;
     _statusField.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
     [content addSubview:_statusField];
 
-    _progressLabel = PfhorgeLabel(NSMakeRect(x, 68, 510, 22), @"Ready", 12, NO);
+    _progressLabel = PfhorgeLabel(NSMakeRect(x, 80, 650, 22), @"Ready", 12, NO);
     [content addSubview:_progressLabel];
-    _progress = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(x, 42, 510, 20)];
-    _progress.minValue = 0; _progress.maxValue = 1; _progress.doubleValue = 0;
+    _progress = [[NSProgressIndicator alloc] initWithFrame:NSMakeRect(x, 52, 650, 20)];
+    _progress.minValue = 0;
+    _progress.maxValue = 1;
+    _progress.doubleValue = 0;
     [content addSubview:_progress];
-    _cancelDownloadButton = [[NSButton alloc] initWithFrame:NSMakeRect(x + 520, 34, 120, 32)];
+    _cancelDownloadButton = [[NSButton alloc] initWithFrame:NSMakeRect(x + 665, 44, 130, 32)];
     _cancelDownloadButton.title = @"Cancel Task";
     _cancelDownloadButton.bezelStyle = NSBezelStyleRounded;
     _cancelDownloadButton.target = self;
@@ -1086,6 +1139,15 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
         row = 0;
     }
     return PfhorgeContentGameKeys()[(NSUInteger)row];
+}
+
+- (void)selectGameKey:(NSString *)gameKey
+{
+    NSUInteger row = [PfhorgeContentGameKeys() indexOfObject:gameKey];
+    if (row == NSNotFound) return;
+    [_gameTable selectRowIndexes:[NSIndexSet indexSetWithIndex:row]
+            byExtendingSelection:NO];
+    [self refreshSelectedGame];
 }
 
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView
@@ -1146,28 +1208,47 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
     NSArray *profiles = manifest[@"textureProfiles"] ?: @[];
     NSString *rootPath = manifest[@"rootPath"] ?: @"";
     NSString *sourceType = manifest[@"sourceType"] ?: @"none";
+    NSString *activeShapes = manifest[@"activeShapesPath"] ?:
+        PfhorgePreferredShapesPath(gameKey, manifest ?: @{}) ?: @"";
 
-    if (shapes.count > 0) {
-        NSString *activeShapes = manifest[@"activeShapesPath"] ?: PfhorgePreferredShapesPath(gameKey, manifest) ?: @"";
+    if (shapes.count > 0 && activeShapes.length > 0) {
         _originalStatusField.stringValue = [NSString stringWithFormat:
-            @"Ready — %lu Shapes candidate(s) found.\nSource: %@\nSelected Shapes: %@",
+            @"Installed and available — %lu Shapes candidate(s). Source: %@. Verification: %@.",
             (unsigned long)shapes.count,
-            rootPath.length > 0 ? rootPath : sourceType,
-            activeShapes.length > 0 ? activeShapes.lastPathComponent : @"Select Original to activate"];
+            sourceType,
+            manifest[@"verificationStatus"] ?: @"not checked"];
+        _originalPathField.stringValue = activeShapes;
+        _originalPathField.toolTip = activeShapes;
     } else {
         _originalStatusField.stringValue = [gameKey isEqualToString:@"custom"]
-            ? @"No original Shapes source is registered. Choose an existing scenario folder or Shapes file."
-            : @"Missing. Install the official original distribution or choose an existing installation. This supplies the canonical Shapes catalog and fallback textures.";
+            ? @"No base Shapes source is registered. Choose an existing scenario folder or Shapes file."
+            : @"Missing. Install the official original distribution or choose an existing installation. Enhanced textures cannot be activated until this required base catalog exists.";
+        _originalPathField.stringValue = @"";
+        _originalPathField.toolTip = nil;
     }
 
-    if (recipe != nil) {
+    NSDictionary *selectedEnhanced = PfhorgeSelectedEnhancedProfile(manifest ?: @{});
+    NSString *enhancedPath = selectedEnhanced[@"path"] ?: @"";
+    if (selectedEnhanced != nil) {
         _enhancedStatusField.stringValue = [NSString stringWithFormat:
-            @"%@\n%@\nInstalled enhanced profiles: %lu",
+            @"Selected: %@ — %lu installed profile(s). Verified: %@.",
+            selectedEnhanced[@"name"] ?: recipe[@"name"] ?: @"Enhanced profile",
+            (unsigned long)profiles.count,
+            selectedEnhanced[@"verifiedAt"] ?: manifest[@"verifiedAt"] ?: @"not checked"];
+        _enhancedPathField.stringValue = enhancedPath;
+        _enhancedPathField.toolTip = enhancedPath;
+    } else if (recipe != nil) {
+        _enhancedStatusField.stringValue = [NSString stringWithFormat:
+            @"Recommended: %@. %@ Installed profiles: %lu.",
             recipe[@"name"], recipe[@"summary"], (unsigned long)profiles.count];
+        _enhancedPathField.stringValue = @"";
+        _enhancedPathField.toolTip = nil;
     } else {
         _enhancedStatusField.stringValue = [NSString stringWithFormat:
-            @"Custom scenario replacements can be imported as an Aleph One plugin directory or ZIP. Installed profiles: %lu",
+            @"Import an Aleph One plugin directory or ZIP as a custom texture profile. Installed profiles: %lu.",
             (unsigned long)profiles.count];
+        _enhancedPathField.stringValue = enhancedPath;
+        _enhancedPathField.toolTip = enhancedPath;
     }
 
     NSString *profile = manifest[PfhorgeContentSelectedProfileKey] ?: @"Untextured Diagnostic";
@@ -1176,17 +1257,22 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
     else [_profilePopup selectItemWithTitle:@"Untextured Diagnostic"];
 
     _statusField.stringValue = [NSString stringWithFormat:
-        @"Active: %@  •  Original external assets: %lu MML / %lu images  •  Verification: %@",
-        profile, (unsigned long)mml.count, (unsigned long)textures.count,
-        manifest[@"verificationStatus"] ?: @"not registered"];
+        @"Active: %@\nExternal original assets: %lu MML / %lu images",
+        profile, (unsigned long)mml.count, (unsigned long)textures.count];
 
     [_gameTable reloadData];
-    if (_gameTable.selectedRow != selectedRow &&
-        selectedRow < _gameTable.numberOfRows) {
+    if (_gameTable.selectedRow != selectedRow && selectedRow < _gameTable.numberOfRows) {
         [_gameTable selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)selectedRow]
                 byExtendingSelection:NO];
     }
     _refreshingGame = NO;
+}
+
+- (void)showWindow:(id)sender
+{
+    [self refreshSelectedGame];
+    [super showWindow:sender];
+    [self.window makeKeyAndOrderFront:sender];
 }
 
 - (void)presentContentError:(NSError *)error
@@ -1404,6 +1490,7 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
     _progressLabel.stringValue = @"Content registered successfully";
     [self refreshSelectedGame];
     PfhorgePostVisualModeSettingsChanged();
+    [self continuePendingEnhancedInstallIfReadyForGame:gameKey];
 }
 
 - (void)installOfficial:(id)sender
@@ -1433,6 +1520,7 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
         });
         if (requestError != nil || data == nil) {
             dispatch_async(dispatch_get_main_queue(), ^{
+                [self clearPendingEnhancedInstall];
                 [self presentContentError:requestError ?: [NSError errorWithDomain:@"org.pfhorge.content" code:1010 userInfo:@{NSLocalizedDescriptionKey: @"The official release manifest could not be downloaded."}]];
             });
             return;
@@ -1468,7 +1556,10 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
                                                            userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:
                     @"The latest official release did not provide the expected %@ archive with a published SHA-256 digest.",
                     expectedName.length > 0 ? expectedName : PfhorgeContentGameDisplayName(gameKey)]}];
-            dispatch_async(dispatch_get_main_queue(), ^{ [self presentContentError:error]; });
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self clearPendingEnhancedInstall];
+                [self presentContentError:error];
+            });
             return;
         }
 
@@ -1490,6 +1581,9 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
             [confirmation beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse result) {
                 if (result == NSAlertFirstButtonReturn) {
                     [self beginOfficialDownload];
+                } else if ([self->_pendingEnhancedGameKey isEqualToString:gameKey]) {
+                    [self clearPendingEnhancedInstall];
+                    self->_progressLabel.stringValue = @"Installation cancelled";
                 }
             }];
         });
@@ -1519,9 +1613,10 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
 {
     (void)sender;
     if (_builderTask != nil && _builderTask.isRunning) {
-        [_builderTask terminate];
+        PfhorgeTerminateTaskTree(_builderTask);
         _progressLabel.stringValue = @"Enhanced pack build cancelled";
     }
+    [self clearPendingEnhancedInstall];
     [_downloadTask cancel];
     _downloadTask = nil;
     _cancelDownloadButton.hidden = YES;
@@ -1537,10 +1632,25 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
     (void)session;
     (void)downloadTask;
     (void)bytesWritten;
-    if (totalBytesExpectedToWrite > 0) {
-        _progress.doubleValue = (double)totalBytesWritten / (double)totalBytesExpectedToWrite;
-        _progressLabel.stringValue = [NSString stringWithFormat:@"Downloading… %.0f%%", _progress.doubleValue * 100.0];
+    int64_t expected = totalBytesExpectedToWrite;
+    if (expected <= 0) expected = [_downloadAsset[@"size"] longLongValue];
+    if (expected > 0) {
+        _progress.indeterminate = NO;
+        [_progress stopAnimation:nil];
+        _progress.doubleValue = MIN(1.0, (double)totalBytesWritten / (double)expected);
+        _progressLabel.stringValue = [NSString stringWithFormat:
+            @"Downloading… %@ / %@ — %.0f%%",
+            PfhorgeHumanFileSize((unsigned long long)MAX(0, totalBytesWritten)),
+            PfhorgeHumanFileSize((unsigned long long)expected),
+            _progress.doubleValue * 100.0];
+    } else {
+        _progress.indeterminate = YES;
+        [_progress startAnimation:nil];
+        _progressLabel.stringValue = [NSString stringWithFormat:
+            @"Downloading… %@ received",
+            PfhorgeHumanFileSize((unsigned long long)MAX(0, totalBytesWritten))];
     }
+    [self.window.contentView displayIfNeeded];
 }
 
 - (void)URLSession:(NSURLSession *)session
@@ -1639,10 +1749,172 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
     (void)session;
     (void)task;
     if (error != nil && error.code != NSURLErrorCancelled) {
+        [self clearPendingEnhancedInstall];
         [self presentContentError:error];
         _progressLabel.stringValue = @"Download failed";
         _cancelDownloadButton.hidden = YES;
     }
+}
+
+- (void)copyPathToPasteboard:(NSString *)path
+{
+    if (path.length == 0) { NSBeep(); return; }
+    NSPasteboard *pasteboard = NSPasteboard.generalPasteboard;
+    [pasteboard clearContents];
+    [pasteboard setString:path forType:NSPasteboardTypeString];
+    _progressLabel.stringValue = @"Path copied";
+}
+
+- (void)copyOriginalPath:(id)sender
+{
+    (void)sender;
+    [self copyPathToPasteboard:_originalPathField.stringValue];
+}
+
+- (void)copyEnhancedPath:(id)sender
+{
+    (void)sender;
+    [self copyPathToPasteboard:_enhancedPathField.stringValue];
+}
+
+- (void)revealOriginalContent:(id)sender
+{
+    (void)sender;
+    NSString *path = _originalPathField.stringValue;
+    if (path.length == 0) { NSBeep(); return; }
+    [[NSWorkspace sharedWorkspace] activateFileViewerSelectingURLs:
+        @[[NSURL fileURLWithPath:path]]];
+}
+
+- (void)revealEnhancedContent:(id)sender
+{
+    (void)sender;
+    NSString *path = _enhancedPathField.stringValue;
+    if (path.length == 0) { NSBeep(); return; }
+    [[NSWorkspace sharedWorkspace] activateFileViewerSelectingURLs:
+        @[[NSURL fileURLWithPath:path isDirectory:YES]]];
+}
+
+- (void)verifyOriginal:(id)sender
+{
+    (void)sender;
+    NSString *gameKey = self.selectedGameKey;
+    NSMutableDictionary *manifest = [PfhorgeReadManifest(gameKey) mutableCopy];
+    NSString *rootPath = manifest[@"rootPath"];
+    if (manifest == nil || rootPath.length == 0) { NSBeep(); return; }
+    _progress.indeterminate = YES;
+    [_progress startAnimation:nil];
+    _progressLabel.stringValue = @"Verifying base Shapes data…";
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSError *error = nil;
+        NSDictionary *scan = PfhorgeScanContentURL(
+            [NSURL fileURLWithPath:rootPath isDirectory:YES], &error);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self->_progress.indeterminate = NO;
+            [self->_progress stopAnimation:nil];
+            if (scan == nil || [scan[@"shapes"] count] == 0) {
+                manifest[@"verificationStatus"] = @"invalid";
+                PfhorgeWriteManifest(gameKey, manifest, nil);
+                [self presentContentError:error ?: [NSError errorWithDomain:@"org.pfhorge.content" code:1060 userInfo:@{NSLocalizedDescriptionKey:@"The registered base source no longer contains a valid Shapes file."}]];
+                [self refreshSelectedGame];
+                return;
+            }
+            manifest[@"scan"] = scan;
+            manifest[@"verificationStatus"] = @"valid";
+            manifest[@"verifiedAt"] = [NSDate date].description;
+            NSError *writeError = nil;
+            if (!PfhorgeWriteManifest(gameKey, manifest, &writeError)) {
+                [self presentContentError:writeError]; return;
+            }
+            self->_progress.doubleValue = 1.0;
+            self->_progressLabel.stringValue = @"Base Shapes verification passed";
+            [self refreshSelectedGame];
+        });
+    });
+}
+
+- (void)verifyEnhanced:(id)sender
+{
+    (void)sender;
+    NSString *gameKey = self.selectedGameKey;
+    NSMutableDictionary *manifest = [PfhorgeReadManifest(gameKey) mutableCopy];
+    NSDictionary *selected = PfhorgeSelectedEnhancedProfile(manifest ?: @{});
+    NSString *path = selected[@"path"];
+    if (manifest == nil || selected == nil || path.length == 0) { NSBeep(); return; }
+    _progress.indeterminate = YES;
+    [_progress startAnimation:nil];
+    _progressLabel.stringValue = @"Verifying enhanced texture profile…";
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSError *error = nil;
+        NSDictionary *scan = PfhorgeScanContentURL(
+            [NSURL fileURLWithPath:path isDirectory:YES], &error);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self->_progress.indeterminate = NO;
+            [self->_progress stopAnimation:nil];
+            if (scan == nil || ([scan[@"textures"] count] == 0 && [scan[@"mml"] count] == 0 && [scan[@"plugins"] count] == 0)) {
+                [self presentContentError:error ?: [NSError errorWithDomain:@"org.pfhorge.content" code:1061 userInfo:@{NSLocalizedDescriptionKey:@"The selected enhanced profile no longer contains usable plugin, MML, or texture content."}]];
+                return;
+            }
+            NSMutableArray *profiles = [manifest[@"textureProfiles"] mutableCopy] ?: [NSMutableArray array];
+            for (NSUInteger index = 0; index < profiles.count; ++index) {
+                if ([profiles[index][@"id"] isEqual:selected[@"id"]]) {
+                    NSMutableDictionary *updated = [profiles[index] mutableCopy];
+                    updated[@"scan"] = scan;
+                    updated[@"verifiedAt"] = [NSDate date].description;
+                    profiles[index] = updated;
+                    break;
+                }
+            }
+            manifest[@"textureProfiles"] = profiles;
+            NSError *writeError = nil;
+            if (!PfhorgeWriteManifest(gameKey, manifest, &writeError)) {
+                [self presentContentError:writeError]; return;
+            }
+            self->_progress.doubleValue = 1.0;
+            self->_progressLabel.stringValue = @"Enhanced profile verification passed";
+            [self refreshSelectedGame];
+        });
+    });
+}
+
+- (void)removeEnhancedProfile:(id)sender
+{
+    (void)sender;
+    NSString *gameKey = self.selectedGameKey;
+    NSMutableDictionary *manifest = [PfhorgeReadManifest(gameKey) mutableCopy];
+    NSDictionary *selected = PfhorgeSelectedEnhancedProfile(manifest ?: @{});
+    if (selected == nil) { NSBeep(); return; }
+    NSString *path = selected[@"path"] ?: @"";
+    NSAlert *alert = [[NSAlert alloc] init];
+    alert.messageText = @"Remove Enhanced Texture Profile?";
+    alert.informativeText = [NSString stringWithFormat:@"Pfhorge will unregister %@. A managed copy inside Pfhorge's Texture Profiles folder will also be deleted. External content is never deleted.", selected[@"name"] ?: @"the selected profile"];
+    [alert addButtonWithTitle:@"Remove"];
+    [alert addButtonWithTitle:@"Cancel"];
+    [alert beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse response) {
+        if (response != NSAlertFirstButtonReturn) return;
+        NSMutableArray *profiles = [manifest[@"textureProfiles"] mutableCopy] ?: [NSMutableArray array];
+        NSIndexSet *indexes = [profiles indexesOfObjectsPassingTest:^BOOL(NSDictionary *profile, NSUInteger index, BOOL *stop) {
+            (void)index; (void)stop;
+            return [profile[@"id"] isEqual:selected[@"id"]];
+        }];
+        [profiles removeObjectsAtIndexes:indexes];
+        manifest[@"textureProfiles"] = profiles;
+        [manifest removeObjectForKey:@"selectedEnhancedProfileID"];
+        manifest[PfhorgeContentSelectedProfileKey] = @"Original";
+        if (path.length > 0 && PfhorgeURLIsInsideDirectory(
+                [NSURL fileURLWithPath:path isDirectory:YES],
+                PfhorgeContentSubdirectory(@"Texture Profiles"))) {
+            [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+        }
+        NSError *error = nil;
+        if (!PfhorgeActivateContentProfile(gameKey, manifest, &error) ||
+            !PfhorgeWriteManifest(gameKey, manifest, &error)) {
+            [self presentContentError:error]; return;
+        }
+        self->_progressLabel.stringValue = @"Enhanced profile removed";
+        [self refreshSelectedGame];
+        PfhorgePostVisualModeSettingsChanged();
+    }];
 }
 
 - (void)verifyContent:(id)sender
@@ -2038,20 +2310,32 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
     (void)sender;
     NSString *gameKey = self.selectedGameKey;
     NSDictionary *recipe = PfhorgeEnhancedRecipeInfo(gameKey);
-    NSMutableDictionary *manifest = [PfhorgeReadManifest(gameKey) mutableCopy];
     if (recipe == nil) return;
-    if (PfhorgePreferredShapesPath(gameKey, manifest ?: @{}) == nil) {
-        [self presentContentError:[NSError errorWithDomain:@"org.pfhorge.content" code:1050
-            userInfo:@{NSLocalizedDescriptionKey:
-                @"Install or choose the original game distribution first. Enhanced packs are replacements layered over the original Shapes catalog."}]];
-        return;
-    }
     NSURL *script = [self recommendedBuilderScriptForGame:gameKey];
     NSString *python = [self pythonExecutable];
     if (script == nil || python.length == 0) {
         [self presentContentError:[NSError errorWithDomain:@"org.pfhorge.content" code:1051
             userInfo:@{NSLocalizedDescriptionKey:
-                @"The reviewed enhanced-pack recipe or Python 3 could not be found. Reapply the CONTENT-1A.1 package, then try again."}]];
+                @"The reviewed enhanced-pack recipe or Python 3 could not be found. Reapply CONTENT-1A.2, then try again."}]];
+        return;
+    }
+
+    NSMutableDictionary *manifest = [PfhorgeReadManifest(gameKey) mutableCopy];
+    if (PfhorgePreferredShapesPath(gameKey, manifest ?: @{}) == nil) {
+        NSAlert *dependency = [[NSAlert alloc] init];
+        dependency.messageText = @"Original Game Data Is Also Required";
+        dependency.informativeText = [NSString stringWithFormat:
+            @"%@ replaces selected images but still requires the original Shapes file for collection metadata, palettes, animation relationships, and fallback images. Pfhorge can install the official original data first and then continue the enhanced build automatically.", recipe[@"name"]];
+        [dependency addButtonWithTitle:@"Install Original + Enhanced"];
+        [dependency addButtonWithTitle:@"Cancel"];
+        [dependency beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse response) {
+            if (response != NSAlertFirstButtonReturn) return;
+            self->_pendingEnhancedGameKey = [gameKey copy];
+            self->_pendingEnhancedRecipe = [recipe copy];
+            self->_pendingEnhancedScript = [script copy];
+            self->_pendingEnhancedPython = [python copy];
+            [self installOfficial:nil];
+        }];
         return;
     }
 
@@ -2059,7 +2343,7 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
     confirm.messageText = [NSString stringWithFormat:@"Install %@", recipe[@"name"]];
     NSString *components = [recipe[@"components"] componentsJoinedByString:@"\n• "];
     confirm.informativeText = [NSString stringWithFormat:
-        @"Pfhorge will run its reviewed builder recipe, download the listed upstream releases into a reusable cache, preserve their credits and rights notices, generate a profile ZIP, safely extract it, and register it as the Enhanced appearance.\n\n• %@\n\n%@\n\nSome upstream hosts may require a manual browser download. The build log and download cache remain available in Application Support.",
+        @"Pfhorge will run its reviewed builder recipe, download the listed upstream releases into a reusable cache, preserve credits and rights notices, generate a profile ZIP, safely extract it, and register it as the Enhanced appearance.\n\n• %@\n\n%@\n\nProgress is reported for source resolution, downloads, extraction, assembly, packaging, verification, and registration.",
         components, recipe[@"summary"]];
     [confirm addButtonWithTitle:@"Build and Install"];
     [confirm addButtonWithTitle:@"Cancel"];
@@ -2067,6 +2351,28 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
         if (result != NSAlertFirstButtonReturn) return;
         [self beginRecommendedEnhancedBuildForGame:gameKey recipe:recipe script:script python:python];
     }];
+}
+
+- (void)clearPendingEnhancedInstall
+{
+    _pendingEnhancedGameKey = nil;
+    _pendingEnhancedRecipe = nil;
+    _pendingEnhancedScript = nil;
+    _pendingEnhancedPython = nil;
+}
+
+- (void)continuePendingEnhancedInstallIfReadyForGame:(NSString *)gameKey
+{
+    if (_pendingEnhancedGameKey.length == 0 ||
+        ![_pendingEnhancedGameKey isEqualToString:gameKey]) return;
+    NSDictionary *manifest = PfhorgeReadManifest(gameKey);
+    if (PfhorgePreferredShapesPath(gameKey, manifest ?: @{}) == nil) return;
+    NSDictionary *recipe = _pendingEnhancedRecipe;
+    NSURL *script = _pendingEnhancedScript;
+    NSString *python = _pendingEnhancedPython;
+    [self clearPendingEnhancedInstall];
+    _progressLabel.stringValue = @"Original data installed; continuing enhanced build…";
+    [self beginRecommendedEnhancedBuildForGame:gameKey recipe:recipe script:script python:python];
 }
 
 - (void)beginRecommendedEnhancedBuildForGame:(NSString *)gameKey
@@ -2092,18 +2398,30 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
     task.arguments = @[script.path, @"--output", _builderOutputURL.path,
                        @"--downloads", downloads.path];
     task.currentDirectoryURL = [script URLByDeletingLastPathComponent];
-    task.standardOutput = _builderLogHandle;
-    task.standardError = _builderLogHandle;
+    _builderOutputPipe = [NSPipe pipe];
+    _builderOutputReadHandle = _builderOutputPipe.fileHandleForReading;
+    _builderOutputBuffer = [NSMutableData data];
+    task.standardOutput = _builderOutputPipe;
+    task.standardError = _builderOutputPipe;
     _builderTask = task;
     _builderGameKey = [gameKey copy];
-    _progress.indeterminate = YES;
-    [_progress startAnimation:nil];
-    _progressLabel.stringValue = [NSString stringWithFormat:@"Building %@…", recipe[@"name"]];
+    _progress.indeterminate = NO;
+    [_progress stopAnimation:nil];
+    _progress.doubleValue = 0.01;
+    _progressLabel.stringValue = [NSString stringWithFormat:@"Starting %@…", recipe[@"name"]];
     _cancelDownloadButton.hidden = NO;
 
     __weak typeof(self) weakSelf = self;
+    _builderOutputReadHandle.readabilityHandler = ^(NSFileHandle *handle) {
+        NSData *data = handle.availableData;
+        if (data.length == 0) {
+            handle.readabilityHandler = nil;
+            return;
+        }
+        [weakSelf consumeBuilderOutputData:data];
+    };
     task.terminationHandler = ^(NSTask *completed) {
-        dispatch_async(dispatch_get_main_queue(), ^{
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.10 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             [weakSelf finishRecommendedEnhancedBuild:completed recipe:recipe];
         });
     };
@@ -2119,8 +2437,52 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
     }
 }
 
+- (void)consumeBuilderOutputData:(NSData *)data
+{
+    if (data.length == 0) return;
+    @synchronized (self) {
+        [_builderLogHandle writeData:data];
+        [_builderOutputBuffer appendData:data];
+        const uint8_t newline = '\n';
+        while (_builderOutputBuffer.length > 0) {
+            NSRange range = [_builderOutputBuffer rangeOfData:
+                [NSData dataWithBytes:&newline length:1]
+                options:0 range:NSMakeRange(0, _builderOutputBuffer.length)];
+            if (range.location == NSNotFound) break;
+            NSData *lineData = [_builderOutputBuffer subdataWithRange:NSMakeRange(0, range.location)];
+            [_builderOutputBuffer replaceBytesInRange:NSMakeRange(0, NSMaxRange(range)) withBytes:NULL length:0];
+            NSString *line = [[NSString alloc] initWithData:lineData encoding:NSUTF8StringEncoding];
+            if (![line hasPrefix:@"PFHORGE_PROGRESS "]) continue;
+            NSData *jsonData = [[line substringFromIndex:@"PFHORGE_PROGRESS ".length]
+                dataUsingEncoding:NSUTF8StringEncoding];
+            NSDictionary *payload = [NSJSONSerialization JSONObjectWithData:jsonData options:0 error:nil];
+            if (![payload isKindOfClass:NSDictionary.class]) continue;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                NSString *label = payload[@"label"] ?: payload[@"phase"] ?: @"Building enhanced profile…";
+                if ([payload[@"indeterminate"] boolValue]) {
+                    self->_progress.indeterminate = YES;
+                    [self->_progress startAnimation:nil];
+                } else {
+                    self->_progress.indeterminate = NO;
+                    [self->_progress stopAnimation:nil];
+                    NSNumber *fraction = payload[@"fraction"];
+                    if ([fraction isKindOfClass:NSNumber.class]) {
+                        self->_progress.doubleValue = MIN(1.0, MAX(0.0, fraction.doubleValue));
+                    }
+                }
+                self->_progressLabel.stringValue = label;
+                [self.window.contentView displayIfNeeded];
+            });
+        }
+    }
+}
+
 - (void)finishRecommendedEnhancedBuild:(NSTask *)task recipe:(NSDictionary *)recipe
 {
+    _builderOutputReadHandle.readabilityHandler = nil;
+    _builderOutputReadHandle = nil;
+    _builderOutputPipe = nil;
+    _builderOutputBuffer = nil;
     [_builderLogHandle closeFile];
     _builderLogHandle = nil;
     _cancelDownloadButton.hidden = YES;
@@ -2259,6 +2621,9 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
     window.title = @"Visual Mode & GPU Settings";
     self = [super initWithWindow:window];
     if (self == nil) return nil;
+    [[NSNotificationCenter defaultCenter] addObserver:self
+        selector:@selector(settingsWindowDidChangeScreen:)
+        name:NSWindowDidChangeScreenNotification object:window];
 
     NSTabView *tabs = [[NSTabView alloc] initWithFrame:NSMakeRect(14, 58, 672, 476)];
     [window.contentView addSubview:tabs];
@@ -2350,6 +2715,35 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
     note.usesSingleLineMode=NO; note.lineBreakMode=NSLineBreakByWordWrapping; [view addSubview:note]; return view;
 }
 
+- (void)refreshFrameRateOptionsPreservingSelection:(BOOL)preserve
+{
+    NSInteger selected = preserve && _frameRate.selectedItem != nil
+        ? [_frameRate.selectedItem.representedObject integerValue]
+        : [NSUserDefaults.standardUserDefaults integerForKey:PfhorgeVMFrameRatePreference];
+    NSScreen *screen = self.window.screen ?: NSApp.mainWindow.screen ?: NSScreen.mainScreen;
+    NSInteger maximum = PfhorgeVisualModeMaximumFrameRateForScreen(screen);
+    [_frameRate removeAllItems];
+    [_frameRate addItemWithTitle:[NSString stringWithFormat:@"Display Maximum (%ld Hz)", (long)maximum]];
+    _frameRate.itemArray.lastObject.representedObject = @(PfhorgeVMFrameRateDisplayMaximum);
+    for (NSNumber *fps in @[@30, @60, @90, @120, @144, @165, @240]) {
+        [_frameRate addItemWithTitle:[NSString stringWithFormat:@"%@ Hz", fps]];
+        _frameRate.itemArray.lastObject.representedObject = fps;
+    }
+    NSMenuItem *match = nil;
+    for (NSMenuItem *item in _frameRate.itemArray) {
+        if ([item.representedObject integerValue] == selected) { match = item; break; }
+    }
+    [_frameRate selectItem:match ?: _frameRate.itemArray.firstObject];
+    _frameRate.toolTip = [NSString stringWithFormat:
+        @"The current screen reports a maximum refresh rate of %ld Hz. Display Maximum follows the screen when the window moves between displays.", (long)maximum];
+}
+
+- (void)settingsWindowDidChangeScreen:(NSNotification *)notification
+{
+    (void)notification;
+    [self refreshFrameRateOptionsPreservingSelection:YES];
+}
+
 - (NSView *)buildDisplayView:(NSRect)frame
 {
     NSView *view = [[NSView alloc] initWithFrame:frame];
@@ -2358,7 +2752,8 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
     for (NSUInteger i=0;i<labels.count;++i) [view addSubview:PfhorgeLabel(NSMakeRect(48, rows[i], 190, 24), labels[i], 13, YES)];
     _gpu=[[NSPopUpButton alloc] initWithFrame:NSMakeRect(242,370,360,28) pullsDown:NO]; [_gpu addItemWithTitle:@"System Default"]; _gpu.itemArray.lastObject.representedObject=@(0ULL);
     for(id<MTLDevice> device in PfhorgeAvailableMetalDevices()){[_gpu addItemWithTitle:device.name?:@"Metal Device"];_gpu.itemArray.lastObject.representedObject=@(device.registryID);} [view addSubview:_gpu];
-    _frameRate=[[NSPopUpButton alloc] initWithFrame:NSMakeRect(242,314,180,28) pullsDown:NO]; for(NSNumber *fps in @[@30,@60,@120]){[_frameRate addItemWithTitle:[NSString stringWithFormat:@"%@ FPS",fps]];_frameRate.itemArray.lastObject.representedObject=fps;} [view addSubview:_frameRate];
+    _frameRate=[[NSPopUpButton alloc] initWithFrame:NSMakeRect(242,314,230,28) pullsDown:NO]; [view addSubview:_frameRate];
+    [self refreshFrameRateOptionsPreservingSelection:NO];
     _renderScale=[[NSPopUpButton alloc] initWithFrame:NSMakeRect(242,258,180,28) pullsDown:NO]; for(NSNumber *scale in @[@0.5,@0.75,@1.0,@1.5,@2.0]){[_renderScale addItemWithTitle:[NSString stringWithFormat:@"%.0f%%",scale.doubleValue*100.0]];_renderScale.itemArray.lastObject.representedObject=scale;} [view addSubview:_renderScale];
     _msaa=[[NSPopUpButton alloc] initWithFrame:NSMakeRect(242,202,180,28) pullsDown:NO]; for(NSNumber *sample in @[@1,@2,@4,@8]){[_msaa addItemWithTitle:sample.integerValue==1?@"Off":[NSString stringWithFormat:@"%@×",sample]];_msaa.itemArray.lastObject.representedObject=sample;} [view addSubview:_msaa];
     _textureFiltering=[[NSPopUpButton alloc] initWithFrame:NSMakeRect(242,146,180,28) pullsDown:NO]; NSArray *filters=@[@"Nearest",@"Linear",@"Trilinear"]; for(NSUInteger i=0;i<filters.count;++i){[_textureFiltering addItemWithTitle:filters[i]];_textureFiltering.itemArray.lastObject.representedObject=@(i);} [view addSubview:_textureFiltering];
@@ -2421,6 +2816,11 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
 @interface LEDelegate (PfhorgeContentAndVisualModeActions)
 - (IBAction)showPfhorgeContentManager:(id)sender;
 - (IBAction)showPfhorgeVisualModeSettings:(id)sender;
+- (IBAction)reloadPfhorgeContent:(id)sender;
+- (IBAction)selectPfhorgeContentGame:(id)sender;
+- (IBAction)selectPfhorgeContentAppearance:(id)sender;
+- (IBAction)revealPfhorgeActiveShapes:(id)sender;
+- (IBAction)revealPfhorgeActiveEnhanced:(id)sender;
 @end
 
 @implementation LEDelegate (PfhorgeContentAndVisualModeActions)
@@ -2434,6 +2834,63 @@ static NSTextField *PfhorgeLabel(NSRect frame, NSString *text, CGFloat size, BOO
 {
     [[PfhorgeVisualModeSettingsController sharedController] showWindow:sender];
 }
+
+
+- (IBAction)reloadPfhorgeContent:(id)sender
+{
+    (void)sender;
+    PfhorgeRestoreActiveContentSelection();
+    [[PfhorgeContentManagerController sharedController] refreshSelectedGame];
+}
+
+- (IBAction)selectPfhorgeContentGame:(id)sender
+{
+    NSString *gameKey = [sender representedObject];
+    if (![PfhorgeContentGameKeys() containsObject:gameKey]) return;
+    [NSUserDefaults.standardUserDefaults setObject:gameKey forKey:PfhorgeContentActiveGamePreference];
+    NSMutableDictionary *manifest = [PfhorgeReadManifest(gameKey) mutableCopy];
+    if (manifest != nil) {
+        NSError *error = nil;
+        if (!PfhorgeActivateContentProfile(gameKey, manifest, &error)) {
+            [NSApp presentError:error];
+        }
+    }
+    [[PfhorgeContentManagerController sharedController] selectGameKey:gameKey];
+    PfhorgePostVisualModeSettingsChanged();
+}
+
+- (IBAction)selectPfhorgeContentAppearance:(id)sender
+{
+    NSString *appearance = [sender representedObject];
+    NSString *gameKey = [NSUserDefaults.standardUserDefaults stringForKey:PfhorgeContentActiveGamePreference] ?: @"marathon";
+    NSMutableDictionary *manifest = [PfhorgeReadManifest(gameKey) mutableCopy];
+    if (manifest == nil || appearance.length == 0) { NSBeep(); return; }
+    manifest[PfhorgeContentSelectedProfileKey] = appearance;
+    NSError *error = nil;
+    if (!PfhorgeActivateContentProfile(gameKey, manifest, &error) ||
+        !PfhorgeWriteManifest(gameKey, manifest, &error)) {
+        [NSApp presentError:error]; return;
+    }
+    [[PfhorgeContentManagerController sharedController] refreshSelectedGame];
+    PfhorgePostVisualModeSettingsChanged();
+}
+
+- (IBAction)revealPfhorgeActiveShapes:(id)sender
+{
+    (void)sender;
+    NSString *path = [NSUserDefaults.standardUserDefaults stringForKey:PfhorgeLegacyShapesPathPreference];
+    if (path.length == 0) { NSBeep(); return; }
+    [[NSWorkspace sharedWorkspace] activateFileViewerSelectingURLs:@[[NSURL fileURLWithPath:path]]];
+}
+
+- (IBAction)revealPfhorgeActiveEnhanced:(id)sender
+{
+    (void)sender;
+    NSString *path = [NSUserDefaults.standardUserDefaults stringForKey:PfhorgeContentActiveEnhancedPathPreference];
+    if (path.length == 0) { NSBeep(); return; }
+    [[NSWorkspace sharedWorkspace] activateFileViewerSelectingURLs:@[[NSURL fileURLWithPath:path isDirectory:YES]]];
+}
+
 
 @end
 
@@ -2461,16 +2918,65 @@ static void PfhorgeInstallContentAndVisualModeMenus(LEDelegate *target)
 {
     PfhorgeRegisterVisualModeDefaults();
 
-    NSMenu *appMenu = PfhorgeFindMainMenu(@"Pfhorge");
-    if (appMenu != nil &&
-        !PfhorgeMenuContainsAction(appMenu, @selector(showPfhorgeContentManager:))) {
-        NSMenuItem *item = [[NSMenuItem alloc]
-            initWithTitle:@"Content Manager…"
-                   action:@selector(showPfhorgeContentManager:)
-            keyEquivalent:@""];
-        item.target = target;
-        NSInteger index = MIN((NSInteger)appMenu.numberOfItems, 3);
-        [appMenu insertItem:item atIndex:index];
+    if (PfhorgeFindMainMenu(@"Content") == nil) {
+        NSMenuItem *contentRoot = [[NSMenuItem alloc] initWithTitle:@"Content" action:nil keyEquivalent:@""];
+        NSMenu *contentMenu = [[NSMenu alloc] initWithTitle:@"Content"];
+        contentRoot.submenu = contentMenu;
+
+        NSMenuItem *manager = [[NSMenuItem alloc] initWithTitle:@"Content Manager…"
+            action:@selector(showPfhorgeContentManager:) keyEquivalent:@"c"];
+        manager.keyEquivalentModifierMask = NSEventModifierFlagCommand | NSEventModifierFlagShift;
+        manager.target = target;
+        [contentMenu addItem:manager];
+        NSMenuItem *reload = [[NSMenuItem alloc] initWithTitle:@"Reload Active Content"
+            action:@selector(reloadPfhorgeContent:) keyEquivalent:@""];
+        reload.target = target;
+        [contentMenu addItem:reload];
+        [contentMenu addItem:NSMenuItem.separatorItem];
+
+        NSMenuItem *gameRoot = [[NSMenuItem alloc] initWithTitle:@"Active Game" action:nil keyEquivalent:@""];
+        NSMenu *gameMenu = [[NSMenu alloc] initWithTitle:@"Active Game"];
+        gameRoot.submenu = gameMenu;
+        for (NSString *gameKey in PfhorgeContentGameKeys()) {
+            NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:PfhorgeContentGameDisplayName(gameKey)
+                action:@selector(selectPfhorgeContentGame:) keyEquivalent:@""];
+            item.target = target;
+            item.representedObject = gameKey;
+            [gameMenu addItem:item];
+        }
+        [contentMenu addItem:gameRoot];
+
+        NSMenuItem *appearanceRoot = [[NSMenuItem alloc] initWithTitle:@"Active Appearance" action:nil keyEquivalent:@""];
+        NSMenu *appearanceMenu = [[NSMenu alloc] initWithTitle:@"Active Appearance"];
+        appearanceRoot.submenu = appearanceMenu;
+        for (NSString *appearance in @[@"Original", @"Enhanced", @"Custom", @"Untextured Diagnostic"]) {
+            NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:appearance
+                action:@selector(selectPfhorgeContentAppearance:) keyEquivalent:@""];
+            item.target = target;
+            item.representedObject = appearance;
+            [appearanceMenu addItem:item];
+        }
+        [contentMenu addItem:appearanceRoot];
+        [contentMenu addItem:NSMenuItem.separatorItem];
+
+        NSMenuItem *revealShapes = [[NSMenuItem alloc] initWithTitle:@"Reveal Active Shapes in Finder"
+            action:@selector(revealPfhorgeActiveShapes:) keyEquivalent:@""];
+        revealShapes.target = target;
+        [contentMenu addItem:revealShapes];
+        NSMenuItem *revealEnhanced = [[NSMenuItem alloc] initWithTitle:@"Reveal Active Enhanced Textures in Finder"
+            action:@selector(revealPfhorgeActiveEnhanced:) keyEquivalent:@""];
+        revealEnhanced.target = target;
+        [contentMenu addItem:revealEnhanced];
+
+        NSInteger insertionIndex = NSApp.mainMenu.numberOfItems;
+        for (NSInteger index = 0; index < NSApp.mainMenu.numberOfItems; ++index) {
+            NSString *title = [NSApp.mainMenu itemAtIndex:index].title;
+            if ([title isEqualToString:@"Window"] || [title isEqualToString:@"Help"]) {
+                insertionIndex = index;
+                break;
+            }
+        }
+        [NSApp.mainMenu insertItem:contentRoot atIndex:insertionIndex];
     }
 
     NSMenu *viewMenu = PfhorgeFindMainMenu(@"View");
@@ -2481,11 +2987,9 @@ static void PfhorgeInstallContentAndVisualModeMenus(LEDelegate *target)
                    action:@selector(showPfhorgeVisualModeSettings:)
             keyEquivalent:@""];
         item.target = target;
-
         NSInteger insertionIndex = 0;
         for (NSInteger index = 0; index < viewMenu.numberOfItems; ++index) {
-            NSMenuItem *existing = [viewMenu itemAtIndex:index];
-            if (existing.action == @selector(enterVisualMode:)) {
+            if ([viewMenu itemAtIndex:index].action == @selector(enterVisualMode:)) {
                 insertionIndex = index + 1;
                 break;
             }
@@ -2493,7 +2997,5 @@ static void PfhorgeInstallContentAndVisualModeMenus(LEDelegate *target)
         [viewMenu insertItem:item atIndex:insertionIndex];
     }
 
-    // Reconnect the last selected managed Shapes source to the legacy texture
-    // repository after the application delegate has finished creating menus.
     PfhorgeRestoreActiveContentSelection();
 }

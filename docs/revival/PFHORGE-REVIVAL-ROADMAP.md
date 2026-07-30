@@ -334,3 +334,24 @@ Implement **CONTENT-1A / VM-SETTINGS-1A** first. The Content Manager establishes
 where original and replacement assets come from; the settings layer makes Metal
 Visual Mode controllable. `TEX-1A` then consumes those validated profiles to
 render original Marathon textures correctly.
+
+## CONTENT-1A / VM-SETTINGS-1A implementation foundation
+
+The next implementation package adds the unified Content Manager, official trilogy distribution installer, local distribution scanning, managed/external content registration, texture-pack import, persistent Visual Mode controls, GPU/display settings, continuous key-state movement, and an optional diagnostics overlay. Classic texture sampling remains TEX-1A.
+
+### CONTENT-1A.1 / VM-SETTINGS-1B — Content Selection and Camera Polish
+
+- simplify content choices to Original, Enhanced, Custom, and Untextured Diagnostic
+- activate selected Shapes through VMShapesPath and TextureRepository
+- install reviewed M1, M2, and Infinity enhanced recipes after explicit approval
+- split mouse axes, inversion, smoothing, and camera tuning
+- keep Metal texture sampling in TEX-1A/TEX-1B
+
+### CONTENT-1A.2 / VM-SETTINGS-1B.1 — Content UX, Progress, and High Refresh
+
+- separate required Shapes data from optional enhanced texture profiles
+- resolve missing original-data dependencies automatically
+- display full resource paths with contextual verify/reveal/copy/remove actions
+- stream structured builder progress and improve official download progress
+- add a dedicated Content menu
+- follow each display's maximum refresh rate, including 240 Hz screens

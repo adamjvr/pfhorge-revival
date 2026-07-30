@@ -3,7 +3,7 @@
 
 SHELL := /bin/bash
 
-.PHONY: stage1 audit baseline preview-core-check map-intake-check map1b-check content1a-check clean-revival help content1a1-check
+.PHONY: stage1 audit baseline preview-core-check map-intake-check map1b-check content1a-check clean-revival help content1a1-check content1a2-check
 
 help:
 	@printf '%s\n' \
@@ -16,6 +16,7 @@ help:
 	  '  make -f revival.mk map1b-check         Validate MAP-1B and the macOS baseline' \
 	  '  make -f revival.mk content1a-check     Validate Content Manager and VM settings' \
 	  '  make -f revival.mk content1a1-check    Validate content selection and mouse/camera polish' \
+	  '  make -f revival.mk content1a2-check    Validate Shapes/texture UX, progress, and 240 Hz' \
 	  '  make -f revival.mk clean-revival       Remove generated reports'
 
 audit:
@@ -35,6 +36,9 @@ map1b-check:
 
 content1a-check:
 	@scripts/revival/validate_content1a.sh
+
+content1a2-check:
+	@scripts/revival/validate_content1a2.sh
 
 content1a1-check:
 	@scripts/revival/validate_content1a1.sh

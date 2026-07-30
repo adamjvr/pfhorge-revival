@@ -45,5 +45,6 @@ enum {
 @end
 
 #ifdef __cplusplus
+#include "../../Content/PfhorgeVisualModeSettings.h"
 #include "../../Preview/Metal/PfhorgeMetalPreviewView.inc"
 #endif

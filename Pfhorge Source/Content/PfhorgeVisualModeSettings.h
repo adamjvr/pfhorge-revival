@@ -34,6 +34,7 @@ NS_ASSUME_NONNULL_BEGIN
 #define PfhorgeVMFieldOfViewPreference @"PfhorgeVMFieldOfViewDegrees"
 #define PfhorgeVMNearPlanePreference @"PfhorgeVMNearPlane"
 #define PfhorgeVMFrameRatePreference @"PfhorgeVMFrameRate"
+#define PfhorgeVMFrameRateDisplayMaximum 0
 #define PfhorgeVMVSyncPreference @"PfhorgeVMVSync"
 #define PfhorgeVMRenderScalePreference @"PfhorgeVMRenderScale"
 #define PfhorgeVMMSAASampleCountPreference @"PfhorgeVMMSAASampleCount"
@@ -80,7 +81,7 @@ PfhorgeVisualModeDefaultValues(void)
         PfhorgeVMVerticalMovementScalePreference: @(1.0),
         PfhorgeVMFieldOfViewPreference: @(60.0),
         PfhorgeVMNearPlanePreference: @(0.01),
-        PfhorgeVMFrameRatePreference: @(60),
+        PfhorgeVMFrameRatePreference: @(PfhorgeVMFrameRateDisplayMaximum),
         PfhorgeVMVSyncPreference: @YES,
         PfhorgeVMRenderScalePreference: @(1.0),
         PfhorgeVMMSAASampleCountPreference: @(1),
@@ -159,6 +160,27 @@ static inline void PfhorgeRegisterVisualModeDefaults(void)
                      forKey:PfhorgeVMMouseSensitivityYPreference];
     }
     [defaults setInteger:2 forKey:PfhorgeVMSettingsMigrationVersionPreference];
+}
+
+
+static inline NSInteger PfhorgeVisualModeMaximumFrameRateForScreen(
+    NSScreen * _Nullable screen)
+{
+    NSInteger maximum = 60;
+    if (@available(macOS 12.0, *)) {
+        if (screen != nil) maximum = MAX(1, screen.maximumFramesPerSecond);
+    }
+    return maximum;
+}
+
+static inline NSInteger PfhorgeResolvedVisualModeFrameRate(
+    NSScreen * _Nullable screen)
+{
+    NSInteger requested = [NSUserDefaults.standardUserDefaults
+        integerForKey:PfhorgeVMFrameRatePreference];
+    const NSInteger maximum = PfhorgeVisualModeMaximumFrameRateForScreen(screen);
+    if (requested == PfhorgeVMFrameRateDisplayMaximum) return maximum;
+    return MAX(1, MIN(requested, maximum));
 }
 
 static inline unichar PfhorgeVisualModeKey(
