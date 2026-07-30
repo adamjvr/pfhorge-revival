@@ -5,8 +5,8 @@
 Pfhorge Revival is a GPL-3.0-or-later Marathon map editor with a
 renderer-neutral preview core, native Metal on macOS, a future Vulkan backend,
 universal Marathon-family map intake, classic Mac container recovery,
-optional original/HD content profiles, Visual Mode editing, and explicit safe
-export.
+distribution-aware content management, original and HD texture profiles,
+Visual Mode editing, and explicit safe export.
 
 Doom WAD support is not in scope. Public terminology uses **Marathon map
 container**; historical Aleph One `wad_*` names remain only where source
@@ -18,13 +18,19 @@ compatibility requires them.
 2. File contents are authoritative; extensions and Finder types are hints.
 3. Container version, map data dialect, and semantic feature support are
    independent classifications.
-4. Import creates a new Pfhorge document and never overwrites historical input.
+4. Import creates new Pfhorge documents and never overwrites historical input.
 5. Unknown data is accompanied by a preservation/export loss ledger.
 6. Optional content downloads happen at runtime, never during compilation.
-7. Large third-party assets live outside `Pfhorge.app` and retain upstream
-   licensing and attribution.
+7. Large third-party assets remain outside `Pfhorge.app` and retain upstream
+   licensing, attribution, version, and provenance.
+8. Original Shapes content is the canonical fallback below optional external
+   replacement textures.
+9. Existing Marathon installations may be used in place or copied into
+   Pfhorge-managed storage; Pfhorge never modifies external installations.
+10. Renderer settings and key bindings are persistent, inspectable, and shared
+    by the Metal Visual Mode implementation.
 
-## Completed foundation
+## Completed and locally validated foundation
 
 ### Application modernization
 
@@ -32,7 +38,7 @@ compatibility requires them.
 - support-directory initialization
 - current Xcode baseline
 - GPL-3.0-or-later revival source conventions
-- preliminary branding/icon foundation
+- preliminary branding and icon foundation
 
 ### VM-2
 
@@ -43,7 +49,7 @@ compatibility requires them.
 - renderer-neutral smoke tests
 - legacy OpenGL fallback
 
-### VM-3A/VM-3B
+### VM-3A / VM-3B
 
 - polygon containment and adjacency
 - projected portal traversal
@@ -51,129 +57,280 @@ compatibility requires them.
 - upper/lower wall splitting
 - portal-aware `PreviewFrame`
 - first-person camera and whole-map diagnostic mode
-- successful live rendering of a newly authored room
+- successful live rendering of newly authored geometry
+
+### MAP-1A
+
+- raw, AppleSingle, AppleDouble, MacBinary, and native-resource-fork intake
+- bounds-checked Marathon container probe
+- content and dialect classification
+- Map Identification UI
+- JSON, CSV, and Markdown corpus reporting
+- extensionless and classic-Mac map selection
+
+### MAP-1B / VM-3C.1
+
+Locally built and runtime-tested on imported historical content:
+
+- merged Marathon scenario detection
+- selectable level import
+- new native Pfhorge level documents
+- source provenance snapshot and import report
+- opaque-data preservation ledger
+- saved-player-start camera initialization
+- verified fallback seed polygon
+- near-plane portal clipping
+- portal diagnostics through the `I` key
+- successful import of the three-level `Detention Center` scenario
+
+Before declaring this milestone repository-complete, commit and push the tested
+local tree.
 
 Regression requirement: entering Visual Mode and moving the camera must not
 mark an otherwise clean document as edited.
 
-## Dependency-ordered phases
+## Active next phase
 
-### MAP-1A — Universal Marathon Map Intake Foundation
+# CONTENT-1A / VM-SETTINGS-1A — Distribution-Aware Content Manager
 
-- raw, AppleSingle, AppleDouble, MacBinary, and native-fork intake
-- bounds-checked Marathon container reader
-- content and dialect classification
-- Map Identification UI
-- JSON/CSV/Markdown corpus reporting
-- extensionless map selection
+This is the immediate next phase.
 
-### MAP-1B — Semantic Import and Real-Map Testing
+### Unified Content Manager
 
-- convert selected M2/Infinity levels into new Pfhorge documents
-- retain provenance, original directory records, indexes, raw chunks, and
-  warnings
-- exercise 2D editing and Metal Visual Mode with historical maps
+Add a first-class dialog available from:
 
-### CONTENT-1A — Marathon Content Registry
+```text
+Pfhorge > Content Manager…
+```
 
-- register scenario folders, Shapes, Sounds, Physics, maps, MML, plugins, and
-  replacement packs
-- scan local trilogy/Aleph One installations
-- optional official-data and community-pack installation
-- pinned hashes, safe extraction, provenance, credits, and rights notices
+and linked from:
 
-Profiles:
+```text
+View > Visual Mode & GPU Settings… > Textures & Content
+```
 
-- Marathon 1 Original / Enhanced Authoring / Full Visual Preview
-- Marathon 2 Original / Official HD / CFP Authoring
-- Infinity Original / Official HD / CFP Authoring
-- Custom Aleph One Scenario
+The same dialog manages:
 
-The supplied M1, M2, and Infinity builder scripts become lightweight curated
-manifests. Compilation remains offline.
+- official Classic Marathon, Marathon 2, and Marathon Infinity distributions
+- original Shapes content and embedded original textures
+- external texture files bundled with those distributions
+- Aleph One plugin folders and archives
+- MML texture mappings
+- optional M1, M2, and Infinity HD profiles
+- custom scenario-specific Shapes and replacement packs
 
-### TEX-1A — Shapes Catalog and Texture Profiles
+### Distribution discovery and installation
 
-- canonical collection/bitmap catalog from Shapes
-- original-image fallback
-- Aleph One MML replacement inventory
-- deterministic pack layering and conflict reporting
-- texture/collection browser and thumbnails
+For each Marathon family game, support:
 
-HD packs are replacement artwork keyed to canonical collection/bitmap IDs;
-they are not the authoritative catalog by themselves.
+- scan this Mac for existing installations
+- choose an existing distribution or scenario directory
+- use existing content in place
+- copy selected content into Pfhorge-managed storage
+- download an approved official distribution after explicit confirmation
+- show download and extraction progress
+- verify pinned archive hashes
+- safely extract with traversal, symlink, case-collision, file-count, and size
+  limits
+- record source URL, package version, hashes, installed files, license, credits,
+  and validation results
+- verify, repair, rescan, reveal, and remove managed copies
 
-### VM-3C — Real-Map Visibility Hardening
+Managed storage:
 
-- near-plane portal clipping
-- inherited visibility windows
-- portal loop protection
-- polygon depth ordering
-- portal diagnostics
-- 5D and moving-platform validation using imported maps
+```text
+~/Library/Application Support/Pfhorge/Content/
+├── Downloads/
+├── Distributions/
+├── Shapes/
+├── Texture Profiles/
+└── Manifests/
+```
 
-### TEX-1B — Textured Metal Visual Mode
+Removing a managed copy must never delete an external installation.
 
-- base, glow, detail/offset, opacity, landscape, and liquid materials
-- mipmaps, sRGB, wrapping, caching, and memory budgeting
-- correct wall/floor/ceiling texture coordinates and map offsets
+### Content profiles
+
+Each distribution scan produces one or more selectable profiles:
+
+```text
+Original
+Distribution Default
+Enhanced
+Custom
+Untextured Diagnostic
+```
+
+Resolver priority:
+
+```text
+project override
+→ user-selected HD profile
+→ enabled plugin bundled with the selected distribution
+→ original texture embedded in Shapes
+→ missing-texture diagnostic checkerboard
+```
+
+Multiple Shapes sources and profiles per game are required for custom
+scenarios.
+
+### Visual Mode and GPU settings
+
+Add:
+
+```text
+View
+├── Visual Mode
+└── Visual Mode & GPU Settings…
+```
+
+Tabs:
+
+- Controls
+- Display & GPU
+- Textures & Content
+- Diagnostics
+
+Metal Visual Mode must consume the stored settings rather than hardcoded keys.
+
+Default controls:
+
+```text
+Forward             W
+Backward            S
+Strafe left         A
+Strafe right        D
+Fly down            Q
+Fly up              E
+Reset camera        R
+Orbit diagnostic    P
+Diagnostics         I
+Mouse drag          Look/orbit
+Scroll              Movement speed/orbit distance
+```
+
+Required settings include:
+
+- rebindable movement and diagnostic keys
+- mouse sensitivity and invert Y
+- base movement speed
+- continuous key-state movement independent of macOS key repeat
+- field of view
+- frame-rate limit
+- VSync
+- render scale
+- MSAA
+- texture filtering and anisotropy
+- Metal device selection where multiple devices exist
+- diagnostics overlay options
+
+Existing legacy `NSUserDefaults` values should be migrated where their meanings
+match.
+
+### CONTENT-1A acceptance gate
+
+- Content Manager opens without a document.
+- Official trilogy cards report Installed, Missing, Invalid, or External.
+- Existing installations can be scanned and previewed before selection.
+- Use-in-place and managed-copy modes both work.
+- No network access occurs during build.
+- Downloads happen only after explicit approval.
+- Hash verification and safe extraction are enforced.
+- Shapes and external distribution textures are cataloged separately.
+- Original and replacement profiles can be enabled or disabled.
+- Manifests preserve provenance, rights notices, credits, and validation.
+- External installations are never modified or deleted.
+- Visual Mode settings open from the View menu.
+- Metal key bindings, sensitivity, speed, and FOV persist and take effect.
+- `P`, `R`, and `I` remain functional and become rebindable.
+- Current untextured rendering remains available.
+
+## Following phase
+
+# TEX-1A — Classic Shapes Textures in Metal
+
+After CONTENT-1A can supply validated content:
+
+1. Build the canonical collection/bitmap catalog from Shapes.
+2. Convert decoded original images into cached `MTLTexture` objects.
+3. Render original floor and ceiling textures.
+4. Render full, high, low, split, and composite wall sections.
+5. Respect side texture offsets, wrapping, transfer modes, and light indexes.
+6. Add landscapes, transparent sides, liquids, and animations.
+7. Fall back to original Shapes when a replacement is absent.
+8. Show a diagnostic checkerboard for invalid descriptors.
+
+## Later phases
+
+### TEX-1B — External and HD Texture Profiles
+
+- Aleph One MML replacement inventory and parsing
+- deterministic profile layering and conflict reports
+- M1 Best Available
+- M2 CFP
+- Infinity CFP
+- glow maps and normal maps where supported
+- project-local overrides
 
 ### TEX-2 — Visual Mode Texture Editing
 
 - surface picking
-- wall/floor/ceiling painting
+- wall, floor, and ceiling painting
 - eyedropper and palettes
 - alignment and offset tools
-- primary/secondary/transparent layers
+- primary, secondary, and transparent layers
 - lighting and transfer-mode editing
-- undo/redo through live document data
+- undo and redo through live document data
 
-### MAP-2 — Full Historical Dialect Coverage
+### VM-3C — Remaining visibility hardening
+
+- inherited visibility windows
+- portal loop protection
+- polygon and surface depth ordering
+- 5D-space validation
+- moving-platform validation
+
+### MAP-2 — Full historical dialect coverage
 
 - Marathon 1 and early container version 1
 - Marathon 2 and Infinity
 - known Aleph One extensions
 - historically accepted noncanonical records
 
-### MAP-3 — Overlays and Scenario Dependencies
+### MAP-3 — Overlays and scenario dependencies
 
 - parent checksum resolution
 - overlay application
 - resource forks and external content
 - scenario folders, scripts, Shapes, Sounds, and Physics dependencies
 
-### ENTITY-1 — Object and Sprite Preview
+### ENTITY-1 — Object and sprite preview
 
-- scenery, items, weapons, monsters, players, animation sequences, color
-  tables, and optional 3D model replacements
+- scenery, items, weapons, monsters, players
+- animation sequences and color tables
+- optional 3D model replacements
 
-This is where the non-environment portions of the supplied HD builders become
-editor-preview inputs.
+### EXPORT-1 — Explicit safe Marathon export
 
-### EXPORT-1 — Explicit Safe Marathon Export
-
-- target-specific M1/M2/Infinity/Aleph One export
+- target-specific M1, M2, Infinity, and Aleph One export
 - compatibility report before writing
-- checksum/resource handling
+- checksum and resource handling
 - opaque-chunk and invalidation disclosure
 
 Ordinary Save remains Pfhorge-native.
 
-### Scenario and archive intake
-
-- complete scenario directories
-- safe ZIP staging
-- traversal, symlink, case-collision, file-count, and decompression limits
-
 ### Productization
 
-- Vulkan/Linux target
+- Vulkan and Linux target
 - automated corpus regression
-- content manager and updates
-- document migration, autosave, CI, signed releases, accessibility, and
-  localization
+- content updates
+- document migration and autosave
+- CI and signed releases
+- accessibility and localization
 
 ## Current next step
 
-**MAP-1A** is active. It unlocks real historical maps for every later renderer,
-content, texture, object, and export test.
+Implement **CONTENT-1A / VM-SETTINGS-1A** first. The Content Manager establishes
+where original and replacement assets come from; the settings layer makes Metal
+Visual Mode controllable. `TEX-1A` then consumes those validated profiles to
+render original Marathon textures correctly.

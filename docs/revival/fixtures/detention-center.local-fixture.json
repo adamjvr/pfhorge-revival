@@ -1,0 +1,43 @@
+{
+  "schema": "org.pfhorge.local-fixture.v1",
+  "fixtureName": "Detention Center",
+  "redistribution": "not included; user-supplied local fixture",
+  "sha256": "1b16df4552802c03da8363386621ba90848c7b8536153ae351fca2c59fdca873",
+  "size": 172813,
+  "expected": {
+    "mapKind": "multi-level merged Marathon scenario",
+    "dialect": "Marathon 2",
+    "containerVersion": 2,
+    "dataVersion": 1,
+    "entryCount": 3,
+    "internalName": "Created with Pfhorte 2",
+    "declaredChecksum": "0x000041A7",
+    "computedChecksum": "0x4946622A",
+    "checksumStatus": "mismatch",
+    "levels": [
+      {
+        "directoryOrdinal": 0,
+        "logicalIndex": 0,
+        "name": "Prolouge",
+        "dataLength": 8448
+      },
+      {
+        "directoryOrdinal": 1,
+        "logicalIndex": 1,
+        "name": "Minimum wage for THIS?!",
+        "dataLength": 157444,
+        "polygonCount": 357,
+        "portalCountObservedInVM3B": 138,
+        "previewSurfaceCountObservedInVM3B": 2243,
+        "initialPortalVertexCountObservedBeforeVM3C": 24
+      },
+      {
+        "directoryOrdinal": 2,
+        "logicalIndex": 2,
+        "name": "Epilouge",
+        "dataLength": 6541
+      }
+    ],
+    "opaqueTagsRequiringLossLedger": ["MAPS"]
+  }
+}

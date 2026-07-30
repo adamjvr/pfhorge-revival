@@ -40,6 +40,13 @@ typedef enum PfhMapContentKind {
     PfhMapContentDamaged
 } PfhMapContentKind;
 
+typedef enum PfhMapMapKind {
+    PfhMapKindUnknown = 0,
+    PfhMapKindSingleLevel,
+    PfhMapKindMergedScenario,
+    PfhMapKindOverlay
+} PfhMapMapKind;
+
 typedef enum PfhMapFindingSeverity {
     PfhMapFindingInfo = 0,
     PfhMapFindingWarning,
@@ -109,6 +116,8 @@ typedef struct PfhMapProbeResult {
     bool structurallyUsable;
     PfhMapContentKind contentKind;
     PfhMapDialect dialect;
+    PfhMapMapKind mapKind;
+    PfhMapSourceEnvelopeKind sourceEnvelopeKind;
     PfhMapContainerHeader header;
 
     PfhMapChecksumStatus checksumStatus;
@@ -145,6 +154,7 @@ bool PfhMapProbeDataFork(
 const char *PfhMapEnvelopeKindName(PfhMapSourceEnvelopeKind kind);
 const char *PfhMapDialectName(PfhMapDialect dialect);
 const char *PfhMapContentKindName(PfhMapContentKind kind);
+const char *PfhMapMapKindName(PfhMapMapKind kind);
 const char *PfhMapChecksumStatusName(PfhMapChecksumStatus status);
 const char *PfhMapFindingSeverityName(PfhMapFindingSeverity severity);
 

@@ -8,11 +8,13 @@
 #import "LELevelData.h"
 #import "LELine.h"
 #import "LEMapPoint.h"
+#import "LEMapObject.h"
 #import "LEPolygon.h"
 
 #include "PreviewScene.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <utility>
 
@@ -173,7 +175,7 @@ inline void appendWallSegment(
     LELevelData *levelData)
 {
     PreviewScene scene;
-    scene.revision = 2U;
+    scene.revision = 3U;
 
     if (levelData == nil) {
         return scene;
@@ -394,6 +396,67 @@ inline void appendWallSegment(
                 openingTop,
                 polygon.ceilingHeight);
         }
+    }
+
+
+    NSArray<LEMapObject *> *mapObjects = [levelData theMapObjects];
+    scene.playerStarts.reserve(mapObjects.count);
+
+    for (NSUInteger objectIndex = 0U;
+         objectIndex < mapObjects.count;
+         ++objectIndex) {
+        LEMapObject *object = mapObjects[objectIndex];
+        if (object.type != _saved_player) {
+            continue;
+        }
+
+        const short polygonIndex = object.polygonIndex;
+        if (polygonIndex < 0 ||
+            static_cast<NSUInteger>(polygonIndex) >= polygons.count) {
+            continue;
+        }
+
+        LEPolygon *polygon = polygons[static_cast<NSUInteger>(polygonIndex)];
+        const float floorHeight =
+            static_cast<float>(polygon.floorHeight) * detail::kWorldUnitScale;
+        const float ceilingHeight =
+            static_cast<float>(polygon.ceilingHeight) * detail::kWorldUnitScale;
+        const float clearance = ceilingHeight - floorHeight;
+        if (clearance <= 0.20F) {
+            continue;
+        }
+
+        // Marathon map-object Z is relative to the owning polygon floor for
+        // ordinary floor-standing objects. Add a conservative editor eye height
+        // and clamp it inside the current floor/ceiling interval.
+        const float requestedEyeHeight =
+            floorHeight +
+            static_cast<float>(object.z) * detail::kWorldUnitScale +
+            0.50F;
+        const float eyeHeight = std::clamp(
+            requestedEyeHeight,
+            floorHeight + 0.05F,
+            ceilingHeight - 0.05F);
+
+        constexpr float kTwoPi = 6.28318530717958647692F;
+        constexpr float kMarathonAngleUnits = 512.0F;
+        const float marathonAngle =
+            static_cast<float>(object.facing) *
+            kTwoPi / kMarathonAngleUnits;
+
+        PreviewPlayerStart start;
+        start.objectID = static_cast<StableID>(objectIndex);
+        start.polygonID = static_cast<StableID>(polygonIndex);
+        start.position = Vec3{
+            static_cast<float>(object.x) * detail::kWorldUnitScale,
+            eyeHeight,
+            -static_cast<float>(object.y) * detail::kWorldUnitScale,
+        };
+        // Marathon angle zero points east. The Metal camera uses yaw zero for
+        // negative Z, and map Y is inverted into preview Z.
+        start.yawRadians =
+            1.57079632679489661923F - marathonAngle;
+        scene.playerStarts.push_back(start);
     }
 
     return scene;

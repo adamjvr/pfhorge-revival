@@ -210,7 +210,9 @@ fragment float4 pfhorgePreviewFragment(
 
 - (simd_float3)portalForwardVector;
 - (void)rebuildPreviewFrame;
-- (void)positionPortalCameraInsideFirstPolygon;
+- (void)positionPortalCameraAtPreferredStart;
+- (void)validatePortalCameraPosition;
+- (void)logPortalDiagnostics;
 - (void)rebuildVertexBuffer;
 - (void)resetCamera;
 - (matrix_float4x4)viewProjectionMatrix;
@@ -224,6 +226,9 @@ fragment float4 pfhorgePreviewFragment(
 
     BOOL _portalModeEnabled;
     simd_float3 _portalCameraPosition;
+    pfhorge::preview::StableID _portalSeedPolygonID;
+    pfhorge::preview::PreviewTraversalDiagnostics _portalDiagnostics;
+    NSString *_portalCameraSource;
     float _portalMoveSpeed;
 
     id<MTLCommandQueue> _commandQueue;
@@ -289,6 +294,7 @@ fragment float4 pfhorgePreviewFragment(
         _previewScene.portals.size(),
         _previewScene.surfaces.size(),
         _metalVertices.size());
+    [self logPortalDiagnostics];
 
     return self;
 }
@@ -422,58 +428,138 @@ fragment float4 pfhorgePreviewFragment(
     camera.aspectRatio = aspectRatio;
     camera.nearPlane = 0.01F;
 
+    const std::optional<pfhorge::preview::StableID> preferredSeed =
+        _portalSeedPolygonID == pfhorge::preview::kInvalidPreviewID
+            ? std::nullopt
+            : std::optional<pfhorge::preview::StableID>(
+                _portalSeedPolygonID);
     _previewFrame =
         pfhorge::preview::BuildPortalPreviewFrame(
             _previewScene,
-            camera);
+            camera,
+            preferredSeed,
+            &_portalDiagnostics);
+    if (_previewFrame.cameraInsideScene) {
+        _portalSeedPolygonID = _previewFrame.cameraPolygonID;
+    }
 }
 
-- (void)positionPortalCameraInsideFirstPolygon
+- (void)positionPortalCameraAtPreferredStart
 {
-    if (_previewScene.polygons.empty()) {
-        _portalCameraPosition =
-            simd_make_float3(0.0F, 0.0F, 0.0F);
-        _cameraYaw = 0.0F;
+    _portalSeedPolygonID = pfhorge::preview::kInvalidPreviewID;
+    _portalCameraSource = @"fallback: no valid polygon";
+
+    for (const pfhorge::preview::PreviewPlayerStart& start :
+         _previewScene.playerStarts) {
+        if (!pfhorge::preview::PolygonContainsPoint3D(
+                _previewScene,
+                start.polygonID,
+                start.position)) {
+            continue;
+        }
+        _portalCameraPosition = simd_make_float3(
+            start.position.x,
+            start.position.y,
+            start.position.z);
+        _portalSeedPolygonID = start.polygonID;
+        _cameraYaw = start.yawRadians;
         _cameraPitch = 0.0F;
+        _portalCameraSource = [NSString stringWithFormat:
+            @"player start object %u",
+            start.objectID];
         return;
     }
 
-    const pfhorge::preview::PreviewPolygon& polygon =
-        _previewScene.polygons.front();
-
-    simd_float3 centroid =
-        simd_make_float3(0.0F, 0.0F, 0.0F);
-    std::size_t validEndpointCount = 0U;
-
-    for (const pfhorge::preview::StableID endpointID :
-         polygon.endpointIDs) {
-        if (endpointID >= _previewScene.endpoints.size()) {
+    for (const pfhorge::preview::PreviewPolygon& polygon :
+         _previewScene.polygons) {
+        const std::optional<pfhorge::preview::Vec3> interior =
+            pfhorge::preview::FindInteriorPoint(_previewScene, polygon.id);
+        if (!interior.has_value()) {
             continue;
         }
-
-        const pfhorge::preview::Vec3& endpoint =
-            _previewScene.endpoints[endpointID];
-
-        centroid +=
-            simd_make_float3(
-                endpoint.x,
-                0.0F,
-                endpoint.z);
-        ++validEndpointCount;
+        _portalCameraPosition = simd_make_float3(
+            interior->x,
+            interior->y,
+            interior->z);
+        _portalSeedPolygonID = polygon.id;
+        _cameraYaw = 0.0F;
+        _cameraPitch = 0.0F;
+        _portalCameraSource = [NSString stringWithFormat:
+            @"interior fallback polygon %u",
+            polygon.id];
+        return;
     }
 
-    if (validEndpointCount > 0U) {
-        centroid /=
-            static_cast<float>(validEndpointCount);
-    }
-
-    centroid.y =
-        (polygon.floorHeight + polygon.ceilingHeight) *
-        0.5F;
-
-    _portalCameraPosition = centroid;
+    _portalCameraPosition = simd_make_float3(0.0F, 0.0F, 0.0F);
     _cameraYaw = 0.0F;
     _cameraPitch = 0.0F;
+}
+
+- (void)validatePortalCameraPosition
+{
+    const pfhorge::preview::Vec3 position{
+        _portalCameraPosition.x,
+        _portalCameraPosition.y,
+        _portalCameraPosition.z,
+    };
+
+    std::optional<pfhorge::preview::StableID> containing;
+    if (_portalSeedPolygonID != pfhorge::preview::kInvalidPreviewID &&
+        pfhorge::preview::PolygonContainsPoint3D(
+            _previewScene,
+            _portalSeedPolygonID,
+            position)) {
+        containing = _portalSeedPolygonID;
+    } else {
+        containing = pfhorge::preview::FindContainingPolygon(
+            _previewScene,
+            position);
+    }
+
+    if (!containing.has_value()) {
+        return;
+    }
+
+    _portalSeedPolygonID = *containing;
+    const pfhorge::preview::StableID seedPolygonID =
+        _portalSeedPolygonID;
+    const auto iterator = std::find_if(
+        _previewScene.polygons.begin(),
+        _previewScene.polygons.end(),
+        [seedPolygonID](const pfhorge::preview::PreviewPolygon& polygon) {
+            return polygon.id == seedPolygonID;
+        });
+    if (iterator == _previewScene.polygons.end()) {
+        return;
+    }
+
+    _portalCameraPosition.y = std::clamp(
+        _portalCameraPosition.y,
+        iterator->floorHeight + 0.05F,
+        iterator->ceilingHeight - 0.05F);
+}
+
+- (void)logPortalDiagnostics
+{
+    NSLog(
+        @"Metal Visual Mode VM-3C: camera=%@ position=(%.3f, %.3f, %.3f) "
+         "seed=%u seedAccepted=%@ visiblePolygons=%zu visibleSurfaces=%zu "
+         "portalsExamined=%u accepted=%u projectionRejects=%u "
+         "clipRejects=%u duplicateRejects=%u vertices=%zu",
+        _portalCameraSource ?: @"unknown",
+        _portalCameraPosition.x,
+        _portalCameraPosition.y,
+        _portalCameraPosition.z,
+        _portalSeedPolygonID,
+        _portalDiagnostics.preferredSeedAccepted ? @"yes" : @"no",
+        _portalDiagnostics.visiblePolygonCount,
+        _portalDiagnostics.visibleSurfaceCount,
+        _portalDiagnostics.portalsExamined,
+        _portalDiagnostics.portalsAccepted,
+        _portalDiagnostics.portalsRejectedProjection,
+        _portalDiagnostics.portalsRejectedClip,
+        _portalDiagnostics.portalsRejectedDuplicate,
+        _metalVertices.size());
 }
 
 - (void)rebuildVertexBuffer
@@ -538,7 +624,7 @@ fragment float4 pfhorgePreviewFragment(
 - (void)resetCamera
 {
     if (_portalModeEnabled) {
-        [self positionPortalCameraInsideFirstPolygon];
+        [self positionPortalCameraAtPreferredStart];
         [self rebuildPreviewFrame];
         [self rebuildVertexBuffer];
         return;
@@ -834,6 +920,11 @@ drawableSizeWillChange:(CGSize)size
         return;
     }
 
+    if (_portalModeEnabled && key == 'i') {
+        [self logPortalDiagnostics];
+        return;
+    }
+
     if (_portalModeEnabled) {
         simd_float3 forward =
             simd_make_float3(
@@ -891,6 +982,7 @@ drawableSizeWillChange:(CGSize)size
         }
 
         if (moved) {
+            [self validatePortalCameraPosition];
             [self rebuildPreviewFrame];
             [self rebuildVertexBuffer];
         }

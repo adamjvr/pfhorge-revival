@@ -44,12 +44,20 @@ struct PreviewPortal final {
     }
 };
 
+struct PreviewPlayerStart final {
+    StableID objectID = kInvalidPreviewID;
+    StableID polygonID = kInvalidPreviewID;
+    Vec3 position;
+    float yawRadians = 0.0F;
+};
+
 struct PreviewScene final {
     std::uint64_t revision = 0;
     std::vector<Vec3> endpoints;
     std::vector<PreviewPolygon> polygons;
     std::vector<PreviewSurface> surfaces;
     std::vector<PreviewPortal> portals;
+    std::vector<PreviewPlayerStart> playerStarts;
 
     [[nodiscard]] bool empty() const noexcept {
         return polygons.empty() && surfaces.empty();

@@ -68,3 +68,7 @@ fastlane/test_output
 # https://github.com/johnno1962/injectionforxcode
 
 iOSInjectionProject/
+
+# Python caches (revival tooling)
+__pycache__/
+*.py[cod]

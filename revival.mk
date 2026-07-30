@@ -3,7 +3,7 @@
 
 SHELL := /bin/bash
 
-.PHONY: stage1 audit baseline preview-core-check map-intake-check clean-revival help
+.PHONY: stage1 audit baseline preview-core-check map-intake-check map1b-check clean-revival help
 
 help:
 	@printf '%s\n' \
@@ -13,6 +13,7 @@ help:
 	  '  make -f revival.mk stage1              Audit, then baseline build' \
 	  '  make -f revival.mk preview-core-check  Compile renderer-neutral preview core' \
 	  '  make -f revival.mk map-intake-check    Validate universal Marathon map intake' \
+	  '  make -f revival.mk map1b-check         Validate MAP-1B and the macOS baseline' \
 	  '  make -f revival.mk clean-revival       Remove generated reports'
 
 audit:
@@ -26,6 +27,9 @@ preview-core-check:
 
 map-intake-check:
 	@scripts/revival/validate_map_intake.sh
+
+map1b-check:
+	@scripts/revival/validate_map1b.sh
 
 stage1: audit baseline preview-core-check map-intake-check
 

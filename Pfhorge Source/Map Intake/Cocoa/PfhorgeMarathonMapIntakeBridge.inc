@@ -302,7 +302,7 @@ static NSString *PfhorgeMapIdentificationText(
     [text appendFormat:@"Detected dialect: %@\n",
         [NSString stringWithUTF8String:PfhMapDialectName(probe->dialect)]];
     [text appendFormat:@"Content: %@\n",
-        [NSString stringWithUTF8String:PfhMapContentKindName(probe->contentKind)]];
+        [NSString stringWithUTF8String:PfhMapMapKindName(probe->mapKind)]];
     [text appendFormat:@"Source envelope: %@\n", sourceDescription ?: @"Unknown"];
     [text appendFormat:@"Marathon container: version %d\n",
         probe->header.containerVersion];

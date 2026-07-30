@@ -34,6 +34,7 @@
 #include "../Map Intake/Cocoa/PfhorgeMarathonMapIntakeBridge.inc"
 
 #import "PhProgress.h"
+#include "../Map Intake/Cocoa/PfhorgeMarathonMapImportWorkflow.inc"
 
 #import "LEMapData.h"
 
@@ -129,211 +130,201 @@
 
 - (IBAction)importMarathonMap:(id)sender
 {
-    NSOpenPanel *op = [NSOpenPanel openPanel];
-    
-    [op	setAllowsMultipleSelection:NO];
-    [op setTitle:NSLocalizedString(@"Import Marathon Map", @"Import Marathon Map")];
-    [op setPrompt:NSLocalizedString(@"Import", @"Import")];
-    // Extensions and Finder type codes are hints only. The byte-level probe
-    // validates the selected source before it reaches the semantic importer.
-    op.allowedFileTypes = nil;
-    [op setAllowsOtherFileTypes:YES];
+    NSOpenPanel *panel = [NSOpenPanel openPanel];
+    panel.allowsMultipleSelection = NO;
+    panel.title = NSLocalizedString(@"Import Marathon Map", @"Import Marathon Map");
+    panel.prompt = NSLocalizedString(@"Inspect", @"Inspect Marathon map");
+    panel.allowedFileTypes = nil;
+    panel.allowsOtherFileTypes = YES;
 
-    [op beginSheetModalForWindow:[self windowForSheet] completionHandler:^(NSModalResponse result) {
-        NSString    *fileName = nil;
-        NSMutableArray *archivedLevels = nil;
-        NSMutableArray *levelNames = [NSMutableArray arrayWithCapacity:0];
-        NSFileManager *fileManager = [NSFileManager defaultManager];
-        NSString *imageDir = [[self fullPathForDirectory] stringByAppendingPathComponent:@"Images"];
-        NSString *soundsDir = [[self fullPathForDirectory] stringByAppendingPathComponent:@"Sounds"];
-        BOOL isDir = NO;
-        
-        BOOL exsists = NO;
-        
-        PhProgress *progress = [PhProgress sharedPhProgress];
-        
-        if (result == NSModalResponseOK) {
-            ScenarioResources *maraResources;
-            NSURL *fileURL = op.URL;
-            fileName = fileURL.path;
-
-            NSData *resolvedMapData = nil;
-            NSData *resolvedResourceData = nil;
-            PfhMapSourceEnvelopeKind envelopeKind = PfhMapSourceEnvelopeRaw;
-            NSString *sourceDescription = nil;
-            NSString *finderType = nil;
-            NSError *intakeError = nil;
-
-            if (!PfhorgeResolveMarathonSourceURL(
-                    fileURL,
-                    &resolvedMapData,
-                    &resolvedResourceData,
-                    &envelopeKind,
-                    &sourceDescription,
-                    &finderType,
-                    &intakeError)) {
-                [self presentError:intakeError];
-                return;
-            }
-
-            PfhMapProbeResult mapProbe = {0};
-            if (!PfhorgeProbeResolvedMapData(
-                    resolvedMapData,
-                    &mapProbe,
-                    &intakeError)) {
-                [self presentError:intakeError];
-                return;
-            }
-
-            if (!PfhorgeConfirmMapIdentification(
-                    [self windowForSheet],
-                    &mapProbe,
-                    sourceDescription,
-                    finderType,
-                    resolvedResourceData.length)) {
-                return;
-            }
-            [progress setMinProgress:0.0];
-            [progress setMaxProgress:100.0];
-            [progress setProgressPostion:0.0];
-            [progress setStatusText:@"Importing Marathon Data…"];
-            [progress setInformationalText:@"Loading Marathon Data Into Memory…"];
-            [progress showWindow:self];
-            
-            // Raw/native files can still use ScenarioResources directly.
-            // Resource forks extracted from AppleSingle/Double/MacBinary are
-            // retained by intake and will be decoded in the resource phase.
-            maraResources = nil;
-            if (envelopeKind == PfhMapSourceEnvelopeRaw) {
-                maraResources =
-                    [[ScenarioResources alloc]
-                        initWithContentsOfURL:fileURL
-                                       error:NULL];
-            }
-            NSError *conversionError = nil;
-            archivedLevels =
-                [LEMapData
-                    convertMarathonDataToArchived:resolvedMapData
-                    levelNames:levelNames
-                    error:&conversionError];
-
-            if (archivedLevels.count == 0) {
-                [progress orderOutWin:self];
-
-                if (conversionError == nil) {
-                    conversionError = PfhorgeMapIntakeError(
-                        fileURL,
-                        NSLocalizedString(
-                            @"The Marathon container was structurally valid, but no levels could be converted.",
-                            @"Valid map contained no convertible levels"));
-                }
-
-                [self presentError:conversionError];
-                return;
-            }
-                                   
-            [progress setStatusText:@"Saving All The Levels…"];
-            
-            [self saveArrayOfNSDatas:archivedLevels
-                       withFileNames:levelNames
-                             baseDir:[self fullPathForDirectory]];
-                             
-            [progress setStatusText:@"Adding Level Names To Scenario Document…"];
-            
-            [self->scenarioData addLevelNames:levelNames];
-            
-            [progress setStatusText:@"Extracting and Saving Resources…"];
-            
-            exsists = [fileManager fileExistsAtPath:imageDir isDirectory:&isDir];
-            
-            if (exsists && !isDir) {
-                NSAlert *alert = [[NSAlert alloc] init];
-                alert.messageText = NSLocalizedString(@"Can Create Images Folder", @"Can Create Images Folder");
-                alert.informativeText = NSLocalizedString(@"File named 'Image' already exsists in scenario folder, can get images.", @"File named 'Image' already exists in scenario folder, can get images.");
-                alert.alertStyle = NSAlertStyleCritical;
-                [alert runModal];
-                [progress orderOutWin:self];
-                return;
-            }
-            
-            if (!exsists) {
-                BOOL succsessfull = YES;
-                succsessfull = [fileManager createDirectoryAtPath:[imageDir stringByDeletingPathExtension] withIntermediateDirectories:YES attributes:nil error:NULL];
-                if (!succsessfull) {
-                    NSAlert *alert = [[NSAlert alloc] init];
-                    alert.messageText = NSLocalizedString(@"Generic Error", @"Generic Error");
-                    alert.informativeText = NSLocalizedString(@"Could not create images folder", @"Could not create images folder");
-                    alert.alertStyle = NSAlertStyleCritical;
-                    [alert runModal];
-                    [progress orderOutWin:self];
-                    return;
-                }
-            }
-            
-            [maraResources iterateResourcesOfType:@"PICT" progress:YES block:^(Resource * resource, NSData *dat, PhProgress *progress) {
-                PhPictConversionBinaryFormat format;
-                NSError *err=nil;
-                NSData *convDat = [PhPictConversion convertPICTfromData:dat returnedFormat:&format error:&err];
-                NSString *savePath;
-                if (!convDat) {
-                    // TODO: store errors for later review by the user
-                    NSLog(@"%@", err);
-                    [progress setInformationalText:[NSString localizedStringWithFormat:NSLocalizedString(@"Saving ‘%@’ Resource# %@…", @"Saving ‘%@’ Resource# %@…"), @"PICT", [resource resID], nil]];
-                    NSString * pictPath = [imageDir stringByAppendingPathComponent:[[[resource resID] stringValue] stringByAppendingPathExtension:@"pict"]];
-                    
-                    [fileManager createFileAtPath:pictPath
-                                         contents:dat
-                                       attributes:@{NSFileHFSTypeCode: @((OSType)'PICT'),
-                                                    NSFileHFSCreatorCode: @((OSType)'ttxt')
-                                       }];
-                    return;
-                }
-                
-                switch (format) {
-                    case PhPictConversionBinaryFormatJPEG:
-                        savePath = [imageDir stringByAppendingPathComponent:[[[resource resID] stringValue] stringByAppendingPathExtension:@"jpeg"]];
-                        break;
-                        
-                    case PhPictConversionBinaryFormatBitmap:
-                        savePath = [imageDir stringByAppendingPathComponent:[[[resource resID] stringValue] stringByAppendingPathExtension:@"bmp"]];
-                        break;
-                        
-                    case PhPictConversionBinaryFormatPNG:
-                        savePath = [imageDir stringByAppendingPathComponent:[[[resource resID] stringValue] stringByAppendingPathExtension:@"png"]];
-                        break;
-
-                    default:
-                        savePath = nil;
-                        break;
-                }
-                
-                [progress setInformationalText:[NSString localizedStringWithFormat:NSLocalizedString(@"Saving converted ‘%@’ Resource# %@…", @"Saving converted ‘%@’ Resource# %@…"), @"PICT", [resource resID]]];
-                BOOL success = [convDat writeToFile:savePath options:NSDataWritingAtomic error:&err];
-                if (!success) {
-                    // TODO: store errors for later review by the user
-                    NSLog(@"%@", err);
-                }
-            }];
-            
-            //TODO: convert sound
-            [maraResources iterateResourcesOfType:@"snd " progress:YES block:^(Resource * resource, NSData *dat, PhProgress *progress) {
-                [progress setInformationalText:[NSString localizedStringWithFormat:NSLocalizedString(@"Saving ‘%@’ Resource# %@…", @"Saving ‘%@’ Resource# %@…"), @"snd ", [resource resID], nil]];
-                NSString *sndPath = [soundsDir stringByAppendingPathComponent:[[[resource resID] stringValue] stringByAppendingPathExtension:@"snd"]];
-                
-                [fileManager createFileAtPath:sndPath
-                                     contents:dat
-                                   attributes:@{NSFileHFSTypeCode: @((OSType)'snd ')
-                                              }];
-            }];
-            
-            [progress increaseProgressBy:1.0];
-            [progress setStatusText:NSLocalizedString(@"Done Converting Level!", @"Done Converting Level!")];
-            [progress orderOutWin:self];
+    [panel beginSheetModalForWindow:[self windowForSheet]
+                 completionHandler:^(NSModalResponse result) {
+        if (result != NSModalResponseOK) {
+            return;
         }
-        
+
+        NSURL *fileURL = panel.URL;
+        NSData *resolvedMapData = nil;
+        NSData *resolvedResourceData = nil;
+        PfhMapSourceEnvelopeKind envelopeKind = PfhMapSourceEnvelopeRaw;
+        NSString *sourceDescription = nil;
+        NSString *finderType = nil;
+        NSError *intakeError = nil;
+
+        if (!PfhorgeResolveMarathonSourceURL(
+                fileURL,
+                &resolvedMapData,
+                &resolvedResourceData,
+                &envelopeKind,
+                &sourceDescription,
+                &finderType,
+                &intakeError)) {
+            [self presentError:intakeError];
+            return;
+        }
+
+        PfhMapProbeResult mapProbe = {0};
+        if (!PfhorgeProbeResolvedMapData(
+                resolvedMapData,
+                &mapProbe,
+                &intakeError)) {
+            [self presentError:intakeError];
+            return;
+        }
+        mapProbe.sourceEnvelopeKind = envelopeKind;
+
+        NSIndexSet *selectedEntries = PfhorgeChooseMarathonEntries(
+            [self windowForSheet],
+            &mapProbe,
+            sourceDescription,
+            finderType,
+            resolvedResourceData.length);
+        if (selectedEntries == nil) {
+            return;
+        }
+
+        NSString *destinationDirectory = [self fullPathForDirectory];
+        if (!PfhorgeConfirmSourceDestinationSeparation(
+                fileURL,
+                destinationDirectory)) {
+            return;
+        }
+
+        PhProgress *progress = [PhProgress sharedPhProgress];
+        [progress setMinProgress:0.0];
+        [progress setMaxProgress:100.0];
+        [progress setProgressPostion:0.0];
+        [progress setStatusText:@"Importing Marathon Data…"];
+        [progress setInformationalText:@"Converting selected levels…"];
+        [progress showWindow:self];
+
+        NSMutableArray<NSString *> *convertedNames = [NSMutableArray array];
+        NSError *conversionError = nil;
+        NSArray<NSData *> *allArchivedLevels =
+            [LEMapData convertMarathonDataToArchived:resolvedMapData
+                                          levelNames:convertedNames
+                                               error:&conversionError];
+
+        if (allArchivedLevels.count == 0U) {
+            [progress orderOutWin:self];
+            if (conversionError == nil) {
+                conversionError = PfhorgeMapIntakeError(
+                    fileURL,
+                    @"The Marathon container was structurally valid, but no levels could be converted.");
+            }
+            [self presentError:conversionError];
+            return;
+        }
+
+        NSMutableArray<NSData *> *selectedLevelData = [NSMutableArray array];
+        NSMutableArray<NSString *> *originalNames = [NSMutableArray array];
+        __block NSError *selectionError = nil;
+        [selectedEntries enumerateIndexesUsingBlock:
+            ^(NSUInteger ordinal, BOOL *stop) {
+                if (ordinal >= allArchivedLevels.count) {
+                    selectionError = PfhorgeMapIntakeError(
+                        fileURL,
+                        [NSString stringWithFormat:
+                            @"Selected directory entry %lu was not produced by the semantic converter.",
+                            (unsigned long)ordinal]);
+                    *stop = YES;
+                    return;
+                }
+                [selectedLevelData addObject:allArchivedLevels[ordinal]];
+                [originalNames addObject:PfhorgeOriginalLevelName(
+                    &mapProbe,
+                    ordinal,
+                    convertedNames)];
+            }];
+
+        if (selectionError != nil) {
+            [progress orderOutWin:self];
+            [self presentError:selectionError];
+            return;
+        }
+
+        NSArray<NSString *> *nativeNames = PfhorgeUniqueNativeLevelNames(
+            originalNames,
+            destinationDirectory);
+
+        [progress setStatusText:@"Writing Selected Levels Atomically…"];
+        NSError *writeError = nil;
+        if (!PfhorgeStageImportedLevelFiles(
+                selectedLevelData,
+                nativeNames,
+                destinationDirectory,
+                &writeError)) {
+            [progress orderOutWin:self];
+            [self presentError:writeError];
+            return;
+        }
+
+        [progress setStatusText:@"Preserving Source and Provenance…"];
+        NSError *snapshotError = nil;
+        if (!PfhorgeWriteMarathonImportSnapshot(
+                destinationDirectory,
+                fileURL,
+                resolvedMapData,
+                resolvedResourceData,
+                &mapProbe,
+                envelopeKind,
+                selectedEntries,
+                originalNames,
+                nativeNames,
+                &snapshotError)) {
+            NSFileManager *manager = NSFileManager.defaultManager;
+            for (NSString *nativeName in nativeNames) {
+                NSString *path = [[destinationDirectory
+                    stringByAppendingPathComponent:nativeName]
+                    stringByAppendingPathExtension:@"pfhlev"];
+                [manager removeItemAtPath:path error:NULL];
+            }
+            [progress orderOutWin:self];
+            [self presentError:snapshotError];
+            return;
+        }
+
+        ScenarioResources *marathonResources = nil;
+        if (envelopeKind == PfhMapSourceEnvelopeRaw) {
+            marathonResources = [[ScenarioResources alloc]
+                initWithContentsOfURL:fileURL
+                               error:NULL];
+        }
+
+        [progress setStatusText:@"Extracting Readable Resources…"];
+        NSError *resourceError = nil;
+        NSString *imageDirectory =
+            [destinationDirectory stringByAppendingPathComponent:@"Images"];
+        NSString *soundDirectory =
+            [destinationDirectory stringByAppendingPathComponent:@"Sounds"];
+        if (!PfhorgeExtractRawScenarioResources(
+                marathonResources,
+                imageDirectory,
+                soundDirectory,
+                progress,
+                &resourceError)) {
+            NSFileManager *manager = NSFileManager.defaultManager;
+            for (NSString *nativeName in nativeNames) {
+                NSString *path = [[destinationDirectory
+                    stringByAppendingPathComponent:nativeName]
+                    stringByAppendingPathExtension:@"pfhlev"];
+                [manager removeItemAtPath:path error:NULL];
+            }
+            [progress orderOutWin:self];
+            [self presentError:resourceError];
+            return;
+        }
+
+        [progress setStatusText:@"Adding Levels to Scenario…"];
+        [self->scenarioData addLevelNames:nativeNames];
+        [progress increaseProgressBy:100.0];
+        [progress setStatusText:@"Marathon Import Complete"];
+        [progress orderOutWin:self];
+
+        // Save only after a successful, confirmed import. Cancelling the panel or
+        // identification dialog never dirties or saves the scenario.
         [self saveDocument:nil];
     }];
-
 }
 
 - (IBAction)importPathwaysMap:(id)sender

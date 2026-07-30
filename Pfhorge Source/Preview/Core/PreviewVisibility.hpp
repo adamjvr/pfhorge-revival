@@ -57,6 +57,20 @@ struct PreviewFrame final {
     std::vector<PreviewPortal> visiblePortals;
 };
 
+struct PreviewTraversalDiagnostics final {
+    bool preferredSeedRequested = false;
+    bool preferredSeedAccepted = false;
+    std::uint32_t portalsExamined = 0U;
+    std::uint32_t portalsRejectedClosed = 0U;
+    std::uint32_t portalsRejectedProjection = 0U;
+    std::uint32_t portalsRejectedClip = 0U;
+    std::uint32_t portalsRejectedDuplicate = 0U;
+    std::uint32_t portalsAccepted = 0U;
+    std::uint32_t traversalDepthStops = 0U;
+    std::size_t visiblePolygonCount = 0U;
+    std::size_t visibleSurfaceCount = 0U;
+};
+
 namespace detail {
 
 [[nodiscard]] inline Vec3 Add(const Vec3& a, const Vec3& b) noexcept {
@@ -141,8 +155,13 @@ namespace detail {
     const Vec3 worldUp{0.0F, 1.0F, 0.0F};
     const Vec3 right =
         NormalizeOr(Cross(forward, worldUp), Vec3{1.0F, 0.0F, 0.0F});
-    const Vec3 cameraUp =
-        NormalizeOr(Cross(right, forward), worldUp);
+    const Vec3 cameraUp = NormalizeOr(Cross(right, forward), worldUp);
+
+    struct CameraPoint final {
+        float x;
+        float y;
+        float depth;
+    };
 
     const std::array<Vec3, 4U> corners{
         portal.lowerLeft,
@@ -151,46 +170,65 @@ namespace detail {
         portal.upperLeft,
     };
 
+    std::vector<CameraPoint> polygon;
+    polygon.reserve(6U);
+    for (const Vec3& corner : corners) {
+        const Vec3 relative = Subtract(corner, camera.position);
+        polygon.push_back(CameraPoint{
+            Dot(relative, right),
+            Dot(relative, cameraUp),
+            Dot(relative, forward),
+        });
+    }
+
+    // Clip the portal quad against the near plane before perspective division.
+    // Ignoring behind-camera corners produces collapsed rectangles when the
+    // camera approaches or crosses a real imported portal.
+    std::vector<CameraPoint> clipped;
+    clipped.reserve(8U);
+    for (std::size_t current = 0U; current < polygon.size(); ++current) {
+        const CameraPoint& a = polygon[current];
+        const CameraPoint& b = polygon[(current + 1U) % polygon.size()];
+        const bool aInside = a.depth >= camera.nearPlane;
+        const bool bInside = b.depth >= camera.nearPlane;
+
+        if (aInside) {
+            clipped.push_back(a);
+        }
+
+        if (aInside != bInside) {
+            const float denominator = b.depth - a.depth;
+            if (std::fabs(denominator) > 0.0000001F) {
+                const float t =
+                    (camera.nearPlane - a.depth) / denominator;
+                clipped.push_back(CameraPoint{
+                    a.x + (b.x - a.x) * t,
+                    a.y + (b.y - a.y) * t,
+                    camera.nearPlane,
+                });
+            }
+        }
+    }
+
+    if (clipped.size() < 3U) {
+        return std::nullopt;
+    }
+
     float minimumX = std::numeric_limits<float>::max();
     float maximumX = std::numeric_limits<float>::lowest();
     float minimumY = std::numeric_limits<float>::max();
     float maximumY = std::numeric_limits<float>::lowest();
-    bool projectedAnyCorner = false;
 
-    for (const Vec3& corner : corners) {
-        const Vec3 relative = Subtract(corner, camera.position);
-        const float depth = Dot(relative, forward);
-
-        if (depth <= camera.nearPlane) {
-            continue;
-        }
-
-        const float projectedX = Dot(relative, right) / depth;
-        const float projectedY = Dot(relative, cameraUp) / depth;
-
-        minimumX = std::min(minimumX, projectedX);
-        maximumX = std::max(maximumX, projectedX);
-        minimumY = std::min(minimumY, projectedY);
-        maximumY = std::max(maximumY, projectedY);
-        projectedAnyCorner = true;
+    for (const CameraPoint& point : clipped) {
+        const float safeDepth = std::max(point.depth, camera.nearPlane);
+        minimumX = std::min(minimumX, point.x / safeDepth);
+        maximumX = std::max(maximumX, point.x / safeDepth);
+        minimumY = std::min(minimumY, point.y / safeDepth);
+        maximumY = std::max(maximumY, point.y / safeDepth);
     }
 
-    if (!projectedAnyCorner) {
-        return std::nullopt;
-    }
-
-    PortalClipRegion result{
-        minimumX,
-        maximumX,
-        minimumY,
-        maximumY,
-    };
-
-    if (!result.valid()) {
-        return std::nullopt;
-    }
-
-    return result;
+    PortalClipRegion result{minimumX, maximumX, minimumY, maximumY};
+    return result.valid() ? std::optional<PortalClipRegion>(result) : std::nullopt;
 }
 
 inline bool RecordRegionIfNew(
@@ -288,6 +326,72 @@ inline bool RecordRegionIfNew(
     return std::nullopt;
 }
 
+[[nodiscard]] inline bool PolygonContainsPoint3D(
+    const PreviewScene& scene,
+    StableID polygonID,
+    const Vec3& point) noexcept
+{
+    const PreviewPolygon *polygon = detail::FindPolygon(scene, polygonID);
+    return polygon != nullptr &&
+           point.y >= polygon->floorHeight &&
+           point.y <= polygon->ceilingHeight &&
+           PointInsidePolygonXZ(scene, *polygon, point);
+}
+
+[[nodiscard]] inline std::optional<Vec3> FindInteriorPoint(
+    const PreviewScene& scene,
+    StableID polygonID) noexcept
+{
+    const PreviewPolygon *polygon = detail::FindPolygon(scene, polygonID);
+    if (polygon == nullptr || polygon->endpointIDs.size() < 3U) {
+        return std::nullopt;
+    }
+
+    Vec3 centroid{0.0F, (polygon->floorHeight + polygon->ceilingHeight) * 0.5F, 0.0F};
+    std::size_t count = 0U;
+    for (StableID endpointID : polygon->endpointIDs) {
+        if (endpointID >= scene.endpoints.size()) {
+            continue;
+        }
+        centroid.x += scene.endpoints[endpointID].x;
+        centroid.z += scene.endpoints[endpointID].z;
+        ++count;
+    }
+    if (count == 0U) {
+        return std::nullopt;
+    }
+    centroid.x /= static_cast<float>(count);
+    centroid.z /= static_cast<float>(count);
+    if (PointInsidePolygonXZ(scene, *polygon, centroid)) {
+        return centroid;
+    }
+
+    const StableID firstID = polygon->endpointIDs.front();
+    if (firstID >= scene.endpoints.size()) {
+        return std::nullopt;
+    }
+    const Vec3& first = scene.endpoints[firstID];
+    for (std::size_t index = 1U; index + 1U < polygon->endpointIDs.size(); ++index) {
+        const StableID secondID = polygon->endpointIDs[index];
+        const StableID thirdID = polygon->endpointIDs[index + 1U];
+        if (secondID >= scene.endpoints.size() || thirdID >= scene.endpoints.size()) {
+            continue;
+        }
+        const Vec3& second = scene.endpoints[secondID];
+        const Vec3& third = scene.endpoints[thirdID];
+        Vec3 candidate{
+            (first.x + second.x + third.x) / 3.0F,
+            centroid.y,
+            (first.z + second.z + third.z) / 3.0F,
+        };
+        if (PointInsidePolygonXZ(scene, *polygon, candidate)) {
+            return candidate;
+        }
+    }
+
+    return std::nullopt;
+}
+
 [[nodiscard]] inline PreviewFrame BuildWholeScenePreviewFrame(
     const PreviewScene& scene)
 {
@@ -317,12 +421,26 @@ inline bool RecordRegionIfNew(
  */
 [[nodiscard]] inline PreviewFrame BuildPortalPreviewFrame(
     const PreviewScene& scene,
-    const PreviewCamera& camera)
+    const PreviewCamera& camera,
+    std::optional<StableID> preferredSeed,
+    PreviewTraversalDiagnostics *diagnostics)
 {
     PreviewFrame frame;
+    if (diagnostics != nullptr) {
+        *diagnostics = PreviewTraversalDiagnostics{};
+        diagnostics->preferredSeedRequested = preferredSeed.has_value();
+    }
 
-    const std::optional<StableID> containing =
-        FindContainingPolygon(scene, camera.position);
+    std::optional<StableID> containing;
+    if (preferredSeed.has_value() &&
+        PolygonContainsPoint3D(scene, *preferredSeed, camera.position)) {
+        containing = preferredSeed;
+        if (diagnostics != nullptr) {
+            diagnostics->preferredSeedAccepted = true;
+        }
+    } else {
+        containing = FindContainingPolygon(scene, camera.position);
+    }
 
     if (!containing.has_value()) {
         return frame;
@@ -383,12 +501,23 @@ inline bool RecordRegionIfNew(
         visiblePolygons.insert(node.polygonID);
 
         if (node.depth >= camera.maximumTraversalDepth) {
+            if (diagnostics != nullptr) {
+                ++diagnostics->traversalDepthStops;
+            }
             continue;
         }
 
         for (const PreviewPortal& portal : scene.portals) {
-            if (portal.sourcePolygonID != node.polygonID ||
-                !portal.open()) {
+            if (portal.sourcePolygonID != node.polygonID) {
+                continue;
+            }
+            if (diagnostics != nullptr) {
+                ++diagnostics->portalsExamined;
+            }
+            if (!portal.open()) {
+                if (diagnostics != nullptr) {
+                    ++diagnostics->portalsRejectedClosed;
+                }
                 continue;
             }
 
@@ -396,6 +525,9 @@ inline bool RecordRegionIfNew(
                 detail::ProjectPortal(portal, camera);
 
             if (!projected.has_value()) {
+                if (diagnostics != nullptr) {
+                    ++diagnostics->portalsRejectedProjection;
+                }
                 continue;
             }
 
@@ -403,6 +535,9 @@ inline bool RecordRegionIfNew(
                 detail::Intersect(node.clipRegion, *projected);
 
             if (!clipped.valid()) {
+                if (diagnostics != nullptr) {
+                    ++diagnostics->portalsRejectedClip;
+                }
                 continue;
             }
 
@@ -411,9 +546,15 @@ inline bool RecordRegionIfNew(
                     portal.destinationPolygonID,
                     clipped,
                     camera.maximumRegionsPerPolygon)) {
+                if (diagnostics != nullptr) {
+                    ++diagnostics->portalsRejectedDuplicate;
+                }
                 continue;
             }
 
+            if (diagnostics != nullptr) {
+                ++diagnostics->portalsAccepted;
+            }
             frame.visiblePortals.push_back(portal);
             pending.push_back(
                 TraversalNode{
@@ -437,7 +578,18 @@ inline bool RecordRegionIfNew(
         }
     }
 
+    if (diagnostics != nullptr) {
+        diagnostics->visiblePolygonCount = frame.visiblePolygonIDs.size();
+        diagnostics->visibleSurfaceCount = frame.visibleSurfaces.size();
+    }
     return frame;
+}
+
+[[nodiscard]] inline PreviewFrame BuildPortalPreviewFrame(
+    const PreviewScene& scene,
+    const PreviewCamera& camera)
+{
+    return BuildPortalPreviewFrame(scene, camera, std::nullopt, nullptr);
 }
 
 /**

@@ -161,6 +161,7 @@ static void test_v4_map(void)
 
     assert(success);
     assert(result.contentKind == PfhMapContentMap);
+    assert(result.mapKind == PfhMapKindSingleLevel);
     assert(result.dialect == PfhMapDialectInfinityCompatible);
     assert(result.directoryEntryCount == 1);
     assert(result.directoryEntries[0].logicalIndex == 7);
@@ -177,6 +178,7 @@ static void test_v0_map(void)
 
     assert(success);
     assert(result.contentKind == PfhMapContentMap);
+    assert(result.mapKind == PfhMapKindSingleLevel);
     assert(result.dialect == PfhMapDialectMarathon1);
     assert(result.directoryEntries[0].logicalIndex == 0);
 }

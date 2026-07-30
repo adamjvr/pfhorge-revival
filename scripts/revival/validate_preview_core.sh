@@ -42,3 +42,12 @@ PORTAL_OUTPUT="${TMPDIR:-/tmp}/pfhorge-preview-portal-clipping-smoke"
 rm -f "$PORTAL_OUTPUT"
 
 echo "preview core smoke test passed"
+
+PLAYER_START_SOURCE="$ROOT/Pfhorge Source/Preview/Tests/PreviewPlayerStartSmoke.cpp"
+PLAYER_START_OUTPUT="${TMPDIR:-/tmp}/pfhorge-preview-player-start-smoke"
+
+"$CXX" -std=c++17 -Wall -Wextra -Wpedantic -Werror \
+  "$PLAYER_START_SOURCE" -o "$PLAYER_START_OUTPUT"
+"$PLAYER_START_OUTPUT"
+rm -f "$PLAYER_START_OUTPUT"
+

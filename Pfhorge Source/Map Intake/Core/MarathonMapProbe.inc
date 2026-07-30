@@ -336,6 +336,13 @@ static void PfhMapClassify(PfhMapProbeResult *result)
 
     if (hasPoints && hasLines && hasPolygons) {
         result->contentKind = PfhMapContentMap;
+        if (result->header.parentChecksum != 0) {
+            result->mapKind = PfhMapKindOverlay;
+        } else if (result->header.entryCount > 1) {
+            result->mapKind = PfhMapKindMergedScenario;
+        } else {
+            result->mapKind = PfhMapKindSingleLevel;
+        }
     } else if (result->tagCount > 0) {
         result->contentKind = PfhMapContentNonMapContainer;
         PfhMapAddFinding(
@@ -775,6 +782,21 @@ const char *PfhMapContentKindName(PfhMapContentKind kind)
             break;
     }
     return "Unknown content";
+}
+
+const char *PfhMapMapKindName(PfhMapMapKind kind)
+{
+    switch (kind) {
+        case PfhMapKindSingleLevel:
+            return "Single-level Marathon map";
+        case PfhMapKindMergedScenario:
+            return "Multi-level merged Marathon scenario";
+        case PfhMapKindOverlay:
+            return "Marathon overlay or patch container";
+        case PfhMapKindUnknown:
+            break;
+    }
+    return "Unknown Marathon map kind";
 }
 
 const char *PfhMapChecksumStatusName(PfhMapChecksumStatus status)
