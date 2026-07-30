@@ -7,6 +7,7 @@
 
 #import <Metal/Metal.h>
 #import <MetalKit/MetalKit.h>
+#import <QuartzCore/CAMetalLayer.h>
 #import <simd/simd.h>
 
 #include "../Core/PreviewSceneBuilder.hpp"
@@ -204,6 +205,24 @@ fragment float4 pfhorgePreviewFragment(
     return source;
 }
 
+
+[[nodiscard]] id<MTLDevice> PfhorgePreferredMetalDevice()
+{
+    PfhorgeRegisterVisualModeDefaults();
+    const unsigned long long preferred =
+        [[[NSUserDefaults standardUserDefaults]
+            objectForKey:PfhorgeVMPreferredMetalRegistryIDPreference]
+            unsignedLongLongValue];
+    if (preferred != 0ULL) {
+        for (id<MTLDevice> device in PfhorgeAvailableMetalDevices()) {
+            if (device.registryID == preferred) {
+                return device;
+            }
+        }
+    }
+    return MTLCreateSystemDefaultDevice();
+}
+
 }  // namespace
 
 @interface PfhorgeMetalPreviewView ()
@@ -213,6 +232,15 @@ fragment float4 pfhorgePreviewFragment(
 - (void)positionPortalCameraAtPreferredStart;
 - (void)validatePortalCameraPosition;
 - (void)logPortalDiagnostics;
+- (void)applyVisualModeSettings;
+- (void)visualModeSettingsDidChange:(NSNotification *)notification;
+- (void)windowDidBecomeKey:(NSNotification *)notification;
+- (void)windowDidResignKey:(NSNotification *)notification;
+- (unichar)configuredKeyForPreference:(NSString *)preference fallback:(unichar)fallback;
+- (BOOL)pressedPreference:(NSString *)preference fallback:(unichar)fallback;
+- (void)clearPressedKeys;
+- (void)updateCameraForFrame;
+- (void)updateDiagnosticsOverlay;
 - (void)rebuildVertexBuffer;
 - (void)resetCamera;
 - (matrix_float4x4)viewProjectionMatrix;
@@ -231,6 +259,27 @@ fragment float4 pfhorgePreviewFragment(
     NSString *_portalCameraSource;
     float _portalMoveSpeed;
 
+    // CONTENT-1A continuous input and persistent renderer settings.
+    NSMutableSet<NSNumber *> *_pressedKeys;
+    NSTimeInterval _lastFrameTimestamp;
+    NSTimeInterval _lastFrameDelta;
+    double _smoothedFPS;
+    float _movementSpeed;
+
+    // CONTENT-1A.1 independent mouse axes and camera tuning.
+    float _mouseSensitivityX;
+    float _mouseSensitivityY;
+    float _lookSmoothing;
+    float _smoothedMouseDeltaX;
+    float _smoothedMouseDeltaY;
+    float _verticalMovementScale;
+    float _nearPlane;
+    float _fieldOfViewDegrees;
+    float _renderScale;
+    BOOL _invertMouseX;
+    BOOL _invertMouseY;
+    NSTextField *_diagnosticsLabel;
+
     id<MTLCommandQueue> _commandQueue;
     id<MTLRenderPipelineState> _pipelineState;
     id<MTLDepthStencilState> _depthStencilState;
@@ -247,7 +296,8 @@ fragment float4 pfhorgePreviewFragment(
 - (instancetype)initWithFrame:(NSRect)frameRect
                     levelData:(LELevelData *)levelData
 {
-    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+    PfhorgeRegisterVisualModeDefaults();
+    id<MTLDevice> device = PfhorgePreferredMetalDevice();
 
     if (device == nil) {
         NSLog(@"Metal Visual Mode unavailable: no Metal device.");
@@ -269,10 +319,29 @@ fragment float4 pfhorgePreviewFragment(
         MTLPixelFormatDepth32Float;
     self.clearColor =
         MTLClearColorMake(0.025, 0.03, 0.04, 1.0);
-    self.preferredFramesPerSecond = 60;
     self.enableSetNeedsDisplay = NO;
     self.paused = NO;
     self.delegate = self;
+
+    _pressedKeys = [NSMutableSet set];
+    _portalMoveSpeed = 1.0F;
+    [self applyVisualModeSettings];
+
+    _diagnosticsLabel = [[NSTextField alloc]
+        initWithFrame:NSMakeRect(12.0, frameRect.size.height - 70.0, 560.0, 58.0)];
+    _diagnosticsLabel.editable = NO;
+    _diagnosticsLabel.selectable = YES;
+    _diagnosticsLabel.bezeled = NO;
+    _diagnosticsLabel.drawsBackground = YES;
+    _diagnosticsLabel.backgroundColor =
+        [NSColor colorWithCalibratedWhite:0.0 alpha:0.66];
+    _diagnosticsLabel.textColor = NSColor.whiteColor;
+    _diagnosticsLabel.font = [NSFont userFixedPitchFontOfSize:11.0];
+    _diagnosticsLabel.usesSingleLineMode = NO;
+    _diagnosticsLabel.autoresizingMask =
+        NSViewMaxXMargin | NSViewMinYMargin;
+    [self addSubview:_diagnosticsLabel];
+    [self applyVisualModeSettings];
 
     _commandQueue = [device newCommandQueue];
 
@@ -284,7 +353,7 @@ fragment float4 pfhorgePreviewFragment(
     _previewScene =
         pfhorge::preview::BuildPreviewScene(levelData);
     _portalModeEnabled = YES;
-    _portalMoveSpeed = 0.15F;
+    _portalMoveSpeed = 1.0F;
     [self resetCamera];
 
     NSLog(
@@ -295,6 +364,21 @@ fragment float4 pfhorgePreviewFragment(
         _previewScene.surfaces.size(),
         _metalVertices.size());
     [self logPortalDiagnostics];
+    [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(visualModeSettingsDidChange:)
+               name:PfhorgeVisualModeSettingsDidChangeNotification
+             object:nil];
+    [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(windowDidBecomeKey:)
+               name:NSWindowDidBecomeKeyNotification
+             object:self.window];
+    [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(windowDidResignKey:)
+               name:NSWindowDidResignKeyNotification
+             object:self.window];
 
     return self;
 }
@@ -339,6 +423,7 @@ fragment float4 pfhorgePreviewFragment(
         self.colorPixelFormat;
     pipelineDescriptor.depthAttachmentPixelFormat =
         self.depthStencilPixelFormat;
+    pipelineDescriptor.rasterSampleCount = self.sampleCount;
 
     NSError *pipelineError = nil;
     _pipelineState =
@@ -367,6 +452,232 @@ fragment float4 pfhorgePreviewFragment(
     return _depthStencilState != nil;
 }
 
+
+
+- (void)applyVisualModeSettings
+{
+    PfhorgeRegisterVisualModeDefaults();
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+
+    _movementSpeed = std::clamp(
+        static_cast<float>([defaults doubleForKey:PfhorgeVMMovementSpeedPreference]),
+        0.05F,
+        100.0F);
+    _verticalMovementScale = std::clamp(
+        static_cast<float>([defaults doubleForKey:PfhorgeVMVerticalMovementScalePreference]),
+        0.1F,
+        3.0F);
+    _mouseSensitivityX = std::clamp(
+        static_cast<float>([defaults doubleForKey:PfhorgeVMMouseSensitivityXPreference]),
+        0.0005F,
+        0.10F);
+    _mouseSensitivityY = std::clamp(
+        static_cast<float>([defaults doubleForKey:PfhorgeVMMouseSensitivityYPreference]),
+        0.0005F,
+        0.10F);
+    _invertMouseX = [defaults boolForKey:PfhorgeVMInvertMouseXPreference];
+    _invertMouseY = [defaults boolForKey:PfhorgeVMInvertMouseYPreference];
+    _lookSmoothing = std::clamp(
+        static_cast<float>([defaults doubleForKey:PfhorgeVMLookSmoothingPreference]),
+        0.0F,
+        0.85F);
+    _nearPlane = std::clamp(
+        static_cast<float>([defaults doubleForKey:PfhorgeVMNearPlanePreference]),
+        0.002F,
+        0.10F);
+    _fieldOfViewDegrees = std::clamp(
+        static_cast<float>([defaults doubleForKey:PfhorgeVMFieldOfViewPreference]),
+        30.0F,
+        130.0F);
+    _renderScale = std::clamp(
+        static_cast<float>([defaults doubleForKey:PfhorgeVMRenderScalePreference]),
+        0.25F,
+        2.0F);
+
+    NSInteger requestedFrames =
+        [defaults integerForKey:PfhorgeVMFrameRatePreference];
+    if (requestedFrames != 30 && requestedFrames != 60 &&
+        requestedFrames != 120) {
+        requestedFrames = 60;
+    }
+    self.preferredFramesPerSecond = requestedFrames;
+
+    NSInteger requestedSamples =
+        [defaults integerForKey:PfhorgeVMMSAASampleCountPreference];
+    if (requestedSamples != 1 && requestedSamples != 2 &&
+        requestedSamples != 4 && requestedSamples != 8) {
+        requestedSamples = 1;
+    }
+    while (requestedSamples > 1 &&
+           ![self.device supportsTextureSampleCount:requestedSamples]) {
+        requestedSamples /= 2;
+    }
+    if (_pipelineState == nil) {
+        self.sampleCount = requestedSamples;
+    }
+
+    if ([self.layer isKindOfClass:CAMetalLayer.class]) {
+        CAMetalLayer *metalLayer = (CAMetalLayer *)self.layer;
+        if ([metalLayer respondsToSelector:@selector(setDisplaySyncEnabled:)]) {
+            metalLayer.displaySyncEnabled =
+                [defaults boolForKey:PfhorgeVMVSyncPreference];
+        }
+    }
+
+    if (_diagnosticsLabel != nil) {
+        _diagnosticsLabel.hidden =
+            ![defaults boolForKey:PfhorgeVMDiagnosticsOverlayPreference];
+    }
+}
+
+- (void)visualModeSettingsDidChange:(NSNotification *)notification
+{
+    (void)notification;
+    [self applyVisualModeSettings];
+    if (_portalModeEnabled) {
+        [self rebuildPreviewFrame];
+        [self rebuildVertexBuffer];
+    }
+}
+
+- (void)windowDidBecomeKey:(NSNotification *)notification
+{
+    if (notification.object != self.window) {
+        return;
+    }
+
+    // Window controllers and sheets can replace the first responder after the
+    // Metal view enters a window. Reassert it on the next run-loop turn.
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (self.window.isKeyWindow) {
+            [self.window makeFirstResponder:self];
+        }
+    });
+}
+
+- (void)windowDidResignKey:(NSNotification *)notification
+{
+    if (notification.object == self.window) {
+        [self clearPressedKeys];
+    }
+}
+
+- (unichar)configuredKeyForPreference:(NSString *)preference
+                             fallback:(unichar)fallback
+{
+    return PfhorgeVisualModeKey(preference, fallback);
+}
+
+- (BOOL)pressedPreference:(NSString *)preference
+                 fallback:(unichar)fallback
+{
+    const unichar key = [self configuredKeyForPreference:preference
+                                                fallback:fallback];
+    return [_pressedKeys containsObject:@(key)];
+}
+
+- (void)clearPressedKeys
+{
+    [_pressedKeys removeAllObjects];
+}
+
+- (void)updateCameraForFrame
+{
+    const NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+    if (_lastFrameTimestamp <= 0.0) {
+        _lastFrameTimestamp = now;
+        _lastFrameDelta = 1.0 / 60.0;
+        return;
+    }
+
+    _lastFrameDelta = std::clamp(now - _lastFrameTimestamp, 0.0, 0.10);
+    _lastFrameTimestamp = now;
+    if (_pressedKeys.count == 0 || _lastFrameDelta <= 0.0) {
+        return;
+    }
+
+    simd_float3 forward = simd_make_float3(
+        std::sin(_cameraYaw),
+        0.0F,
+        -std::cos(_cameraYaw));
+    if (simd_length_squared(forward) > 0.000001F) {
+        forward = simd_normalize(forward);
+    }
+    const simd_float3 right = simd_make_float3(
+        -forward.z,
+        0.0F,
+        forward.x);
+
+    const float step =
+        _movementSpeed * _portalMoveSpeed *
+        static_cast<float>(_lastFrameDelta);
+    BOOL moved = NO;
+
+    simd_float3 *position = _portalModeEnabled
+        ? &_portalCameraPosition
+        : &_cameraTarget;
+
+    if ([self pressedPreference:PfhorgeVMForwardKeyPreference fallback:'w']) {
+        *position += forward * step;
+        moved = YES;
+    }
+    if ([self pressedPreference:PfhorgeVMBackwardKeyPreference fallback:'s']) {
+        *position -= forward * step;
+        moved = YES;
+    }
+    if ([self pressedPreference:PfhorgeVMStrafeLeftKeyPreference fallback:'a']) {
+        *position -= right * step;
+        moved = YES;
+    }
+    if ([self pressedPreference:PfhorgeVMStrafeRightKeyPreference fallback:'d']) {
+        *position += right * step;
+        moved = YES;
+    }
+    if ([self pressedPreference:PfhorgeVMFlyDownKeyPreference fallback:'q']) {
+        position->y -= step * _verticalMovementScale;
+        moved = YES;
+    }
+    if ([self pressedPreference:PfhorgeVMFlyUpKeyPreference fallback:'e']) {
+        position->y += step * _verticalMovementScale;
+        moved = YES;
+    }
+
+    if (moved && _portalModeEnabled) {
+        [self validatePortalCameraPosition];
+        [self rebuildPreviewFrame];
+        [self rebuildVertexBuffer];
+    }
+}
+
+- (void)updateDiagnosticsOverlay
+{
+    if (_diagnosticsLabel == nil || _diagnosticsLabel.hidden) {
+        return;
+    }
+
+    const double instantaneousFPS = _lastFrameDelta > 0.000001
+        ? 1.0 / _lastFrameDelta
+        : 0.0;
+    if (_smoothedFPS <= 0.0) {
+        _smoothedFPS = instantaneousFPS;
+    } else {
+        _smoothedFPS = (_smoothedFPS * 0.90) +
+                       (instantaneousFPS * 0.10);
+    }
+
+    _diagnosticsLabel.stringValue = [NSString stringWithFormat:
+        @"%.1f FPS | camera=(%.2f, %.2f, %.2f) | seed=%u\n"
+         "visible=%zu polygons / %zu surfaces | portals=%u accepted | vertices=%zu",
+        _smoothedFPS,
+        _portalCameraPosition.x,
+        _portalCameraPosition.y,
+        _portalCameraPosition.z,
+        _portalSeedPolygonID,
+        _portalDiagnostics.visiblePolygonCount,
+        _portalDiagnostics.visibleSurfaceCount,
+        _portalDiagnostics.portalsAccepted,
+        _metalVertices.size()];
+}
 
 - (simd_float3)portalForwardVector
 {
@@ -422,11 +733,11 @@ fragment float4 pfhorgePreviewFragment(
             forward.z,
         };
     camera.verticalFieldOfViewRadians =
-        60.0F *
+        _fieldOfViewDegrees *
         static_cast<float>(M_PI) /
         180.0F;
     camera.aspectRatio = aspectRatio;
-    camera.nearPlane = 0.01F;
+    camera.nearPlane = _nearPlane;
 
     const std::optional<pfhorge::preview::StableID> preferredSeed =
         _portalSeedPolygonID == pfhorge::preview::kInvalidPreviewID
@@ -722,7 +1033,7 @@ fragment float4 pfhorgePreviewFragment(
 
     const float nearPlane =
         _portalModeEnabled
-            ? 0.01F
+            ? _nearPlane
             : std::max(
                 0.01F,
                 _cameraDistance / 1000.0F);
@@ -735,7 +1046,7 @@ fragment float4 pfhorgePreviewFragment(
 
     const matrix_float4x4 projection =
         MakePerspectiveMatrix(
-            60.0F *
+            _fieldOfViewDegrees *
             static_cast<float>(M_PI) /
             180.0F,
             aspectRatio,
@@ -748,6 +1059,19 @@ fragment float4 pfhorgePreviewFragment(
 
 - (void)drawInMTKView:(MTKView *)view
 {
+    [self updateCameraForFrame];
+
+    const CGFloat backingScale =
+        self.window != nil ? self.window.backingScaleFactor : 1.0;
+    const CGSize desiredDrawableSize = CGSizeMake(
+        std::max<CGFloat>(1.0, self.bounds.size.width * backingScale * _renderScale),
+        std::max<CGFloat>(1.0, self.bounds.size.height * backingScale * _renderScale));
+    if (std::fabs(self.drawableSize.width - desiredDrawableSize.width) > 1.0 ||
+        std::fabs(self.drawableSize.height - desiredDrawableSize.height) > 1.0) {
+        self.drawableSize = desiredDrawableSize;
+    }
+    [self updateDiagnosticsOverlay];
+
     MTLRenderPassDescriptor *passDescriptor =
         view.currentRenderPassDescriptor;
     id<CAMetalDrawable> drawable =
@@ -804,6 +1128,10 @@ drawableSizeWillChange:(CGSize)size
 {
     (void)view;
     (void)size;
+    if (_portalModeEnabled) {
+        [self rebuildPreviewFrame];
+        [self rebuildVertexBuffer];
+    }
 }
 
 - (BOOL)acceptsFirstResponder
@@ -816,7 +1144,12 @@ drawableSizeWillChange:(CGSize)size
     [super viewDidMoveToWindow];
 
     if (self.window != nil) {
-        [self.window makeFirstResponder:self];
+        self.window.acceptsMouseMovedEvents = YES;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (self.window != nil) {
+                [self.window makeFirstResponder:self];
+            }
+        });
     }
 }
 
@@ -841,10 +1174,26 @@ drawableSizeWillChange:(CGSize)size
         static_cast<float>(
             location.y - _lastDragLocation.y);
 
-    _cameraYaw -= deltaX * 0.01F;
+    const float blend = 1.0F - _lookSmoothing;
+    _smoothedMouseDeltaX =
+        (_smoothedMouseDeltaX * _lookSmoothing) +
+        (static_cast<float>(deltaX) * blend);
+    _smoothedMouseDeltaY =
+        (_smoothedMouseDeltaY * _lookSmoothing) +
+        (static_cast<float>(deltaY) * blend);
+
+    // AppKit drag deltas are positive to the right. Positive yaw turns the
+    // Marathon camera right, so the default direction is deliberately +.
+    const float yawDirection = _invertMouseX ? -1.0F : 1.0F;
+    _cameraYaw +=
+        _smoothedMouseDeltaX * _mouseSensitivityX * yawDirection;
+    const float pitchDirection = _invertMouseY ? -1.0F : 1.0F;
     _cameraPitch =
         std::clamp(
-            _cameraPitch + deltaY * 0.01F,
+            _cameraPitch +
+                _smoothedMouseDeltaY *
+                _mouseSensitivityY *
+                pitchDirection,
             -1.45F,
             1.45F);
 
@@ -881,22 +1230,27 @@ drawableSizeWillChange:(CGSize)size
 }
 
 
+
 - (void)keyDown:(NSEvent *)event
 {
     NSString *characters =
         event.charactersIgnoringModifiers.lowercaseString;
-
     if (characters.length == 0U) {
         [super keyDown:event];
         return;
     }
 
-    const unichar key =
-        [characters characterAtIndex:0U];
+    const unichar key = [characters characterAtIndex:0U];
+    const unichar orbitKey =
+        [self configuredKeyForPreference:PfhorgeVMOrbitKeyPreference fallback:'p'];
+    const unichar resetKey =
+        [self configuredKeyForPreference:PfhorgeVMResetKeyPreference fallback:'r'];
+    const unichar diagnosticsKey =
+        [self configuredKeyForPreference:PfhorgeVMDiagnosticsKeyPreference fallback:'i'];
 
-    if (key == 'p') {
+    if (!event.isARepeat && key == orbitKey) {
+        [self clearPressedKeys];
         _portalModeEnabled = !_portalModeEnabled;
-
         if (_portalModeEnabled) {
             [self resetCamera];
         } else {
@@ -906,7 +1260,6 @@ drawableSizeWillChange:(CGSize)size
             [self rebuildVertexBuffer];
             [self resetCamera];
         }
-
         NSLog(
             @"Metal Visual Mode VM-3 camera mode: %@",
             _portalModeEnabled
@@ -915,131 +1268,62 @@ drawableSizeWillChange:(CGSize)size
         return;
     }
 
-    if (key == 'r') {
+    if (!event.isARepeat && key == resetKey) {
+        [self clearPressedKeys];
         [self resetCamera];
         return;
     }
 
-    if (_portalModeEnabled && key == 'i') {
+    if (!event.isARepeat && key == diagnosticsKey) {
         [self logPortalDiagnostics];
         return;
     }
 
-    if (_portalModeEnabled) {
-        simd_float3 forward =
-            simd_make_float3(
-                std::sin(_cameraYaw),
-                0.0F,
-                -std::cos(_cameraYaw));
-
-        if (simd_length_squared(forward) > 0.000001F) {
-            forward = simd_normalize(forward);
+    NSArray<NSString *> *movementPreferences = @[
+        PfhorgeVMForwardKeyPreference,
+        PfhorgeVMBackwardKeyPreference,
+        PfhorgeVMStrafeLeftKeyPreference,
+        PfhorgeVMStrafeRightKeyPreference,
+        PfhorgeVMFlyDownKeyPreference,
+        PfhorgeVMFlyUpKeyPreference,
+    ];
+    const unichar fallbacks[] = {'w', 's', 'a', 'd', 'q', 'e'};
+    for (NSUInteger index = 0; index < movementPreferences.count; ++index) {
+        if (key == [self configuredKeyForPreference:movementPreferences[index]
+                                           fallback:fallbacks[index]]) {
+            [_pressedKeys addObject:@(key)];
+            return;
         }
-
-        const simd_float3 right =
-            simd_make_float3(
-                -forward.z,
-                0.0F,
-                forward.x);
-
-        bool moved = true;
-
-        switch (key) {
-            case 'w':
-                _portalCameraPosition +=
-                    forward * _portalMoveSpeed;
-                break;
-
-            case 's':
-                _portalCameraPosition -=
-                    forward * _portalMoveSpeed;
-                break;
-
-            case 'a':
-                _portalCameraPosition -=
-                    right * _portalMoveSpeed;
-                break;
-
-            case 'd':
-                _portalCameraPosition +=
-                    right * _portalMoveSpeed;
-                break;
-
-            case 'q':
-                _portalCameraPosition.y -=
-                    _portalMoveSpeed;
-                break;
-
-            case 'e':
-                _portalCameraPosition.y +=
-                    _portalMoveSpeed;
-                break;
-
-            default:
-                moved = false;
-                [super keyDown:event];
-                break;
-        }
-
-        if (moved) {
-            [self validatePortalCameraPosition];
-            [self rebuildPreviewFrame];
-            [self rebuildVertexBuffer];
-        }
-
-        return;
     }
 
-    const float step =
-        std::max(0.05F, _cameraDistance * 0.04F);
-
-    simd_float3 forward =
-        simd_make_float3(
-            -std::sin(_cameraYaw),
-            0.0F,
-            -std::cos(_cameraYaw));
-
-    if (simd_length_squared(forward) >
-        0.000001F) {
-        forward = simd_normalize(forward);
-    }
-
-    const simd_float3 right =
-        simd_make_float3(
-            -forward.z,
-            0.0F,
-            forward.x);
-
-    switch (key) {
-        case 'w':
-            _cameraTarget += forward * step;
-            break;
-
-        case 's':
-            _cameraTarget -= forward * step;
-            break;
-
-        case 'a':
-            _cameraTarget -= right * step;
-            break;
-
-        case 'd':
-            _cameraTarget += right * step;
-            break;
-
-        case 'q':
-            _cameraTarget.y -= step;
-            break;
-
-        case 'e':
-            _cameraTarget.y += step;
-            break;
-
-        default:
-            [super keyDown:event];
-            break;
-    }
+    [super keyDown:event];
 }
 
+- (void)keyUp:(NSEvent *)event
+{
+    NSString *characters =
+        event.charactersIgnoringModifiers.lowercaseString;
+    if (characters.length > 0U) {
+        NSNumber *releasedKey = @([characters characterAtIndex:0U]);
+        if ([_pressedKeys containsObject:releasedKey]) {
+            [_pressedKeys removeObject:releasedKey];
+            return;
+        }
+    }
+    [super keyUp:event];
+}
+
+- (void)viewWillMoveToWindow:(NSWindow *)newWindow
+{
+    if (newWindow == nil) {
+        [self clearPressedKeys];
+    }
+    [super viewWillMoveToWindow:newWindow];
+}
+
+- (void)dealloc
+{
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
 
 @end

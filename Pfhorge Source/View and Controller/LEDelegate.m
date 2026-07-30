@@ -36,6 +36,7 @@
 #import "PhPluginManager.h"
 
 #include "../Splash/PfhorgeSplashController.inc"
+#include "../Content/PfhorgeContentManager.inc"
 
 
 #pragma mark - Revival Support Directories
@@ -273,6 +274,7 @@ static void EnsurePfhorgeSupportDirectories(void)
     
     [self setupAppleScriptMenu];
     [self setupPluginMenu];
+    PfhorgeInstallContentAndVisualModeMenus(self);
 
     // Folder/plugin alerts must finish before the splash appears.
     [[PfhorgeSplashController sharedController] showSplash];
