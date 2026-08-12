@@ -26,6 +26,7 @@
 #import "OpenGLVisualModeController.h"
 #import "MyOpenGLView2.h"
 #include "LEExtras.h"
+#include "../Preview/UI/PfhorgeForgeVisualModeWorkspace.inc"
 
 @implementation OpenGLVisualModeController
 
@@ -81,15 +82,33 @@
             boolForKey:@"PfhorgeUseMetalPreview"];
 
     if (useMetalPreview) {
+        // VM-UI-1A: one native macOS window now hosts both the Metal viewport
+        // and a Forge-inspired AppKit texture palette. The palette is
+        // selection-only in this phase; renderer/map semantics are untouched.
+        PfhorgeConfigureMetalVisualModeWindow(self.window);
+
         NSView *contentView = self.window.contentView;
+        NSRect metalInitialFrame = contentView.bounds;
+        metalInitialFrame.size.height =
+            MAX(
+                180.0,
+                metalInitialFrame.size.height -
+                PfhorgeVMForgePaletteHeight -
+                PfhorgeVMForgeSeparatorHeight);
 
         PfhorgeMetalPreviewView *metalView =
             [[PfhorgeMetalPreviewView alloc]
-                initWithFrame:contentView.bounds
+                initWithFrame:metalInitialFrame
                     levelData:levelData];
 
         if (metalView != nil) {
-            self.window.contentView = metalView;
+            PfhorgeForgeVisualModeWorkspaceView *workspace =
+                [[PfhorgeForgeVisualModeWorkspaceView alloc]
+                    initWithFrame:contentView.bounds
+                        metalView:metalView
+                        levelData:levelData];
+
+            self.window.contentView = workspace;
             self.window.title =
                 [self.window.title
                     stringByAppendingString:
