@@ -72,3 +72,7 @@ iOSInjectionProject/
 # Python caches (revival tooling)
 __pycache__/
 *.py[cod]
+
+# macOS Finder metadata
+.DS_Store
+**/.DS_Store
