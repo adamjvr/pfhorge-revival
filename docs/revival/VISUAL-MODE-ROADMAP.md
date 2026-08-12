@@ -1,384 +1,417 @@
-# Visual Mode revival roadmap
+# Visual Mode Revival Roadmap
 
 ## Mission
 
-Create a fast, accurate, editor-oriented 3D Visual Mode that matches the
-observable map behavior of Forge and Aleph One while remaining safely integrated
-with Pfhorge's undoable editor model.
+Build a fast, accurate, editor-oriented 3D Visual Mode that reproduces the map
+semantics users expect from Forge and Aleph One while remaining safely connected
+to Pfhorge's undoable document model.
 
-The preview is not a complete embedded game. It is a map renderer, selector,
-texture editor, geometry inspector, and validation surface.
+Visual Mode is not an embedded game. It is:
 
-## Architectural rules
+- a map renderer
+- a surface selector
+- a texture/light editor
+- a topology inspector
+- a validation surface
+- eventually a bridge to temporary playtesting
 
-1. The renderer never owns or mutates live Objective-C map objects.
-2. Rendering consumes an immutable `PreviewScene` snapshot.
-3. Marathon visibility and surface semantics are independent of Metal, Vulkan,
-   OpenGL, AppKit, and SDL.
-4. Backend APIs appear only in backend-specific directories.
-5. All editor mutations pass through Pfhorge commands and undo management.
-6. OpenGL is a temporary reference, not the new foundation.
-7. Metal is the first production backend.
-8. Vulkan begins only after renderer-neutral behavior is validated.
-9. Exact Aleph One provenance is recorded before adapting implementation code.
-10. Visual correctness is tested with fixtures and fixed camera captures.
+## Rules that are not negotiable
 
-## Target architecture
+1. The renderer never owns live Objective-C map objects.
+2. Rendering consumes immutable preview state.
+3. Marathon visibility and surface semantics are independent of Metal/Vulkan.
+4. Backend APIs stay in backend-specific code.
+5. Editing mutations return through Pfhorge and `NSUndoManager`.
+6. OpenGL is a behavioral reference, not the new foundation.
+7. Metal is the production macOS backend.
+8. Vulkan waits until renderer-neutral behavior is trustworthy.
+9. Stable IDs/provenance are required for editing.
+10. Rendering bugs are diagnosed rather than hidden with guessed textures.
+
+## Current architecture
 
 ```text
-LEMapData and editor objects
+LELevelData / editor objects
           |
           v
-PreviewSceneBuilder.mm
+PreviewSceneBuilder
           |
           v
 Immutable PreviewScene
           |
-          +--> MarathonVisibility
-          +--> MarathonSurfaceBuilder
-          +--> MarathonTextureSemantics
-          +--> PreviewValidation
+          +--> topology
+          +--> side ownership
+          +--> texture descriptors
+          +--> platform state
+          +--> diagnostics
+          |
+          v
+PreviewVisibility
           |
           v
 PreviewFrame
           |
-          +--> MetalPreviewRenderer
-          +--> ReferencePreviewRenderer
-          `--> VulkanPreviewRenderer (later)
+          +--> Metal renderer
+          +--> picking/inspection
+          `--> Vulkan renderer later
 ```
 
-## Core data model
+## Current working implementation
 
-The renderer-neutral layer should represent:
+### Geometry and camera
 
-- points and lines
-- sides
-- polygons and adjacency
-- floor and ceiling heights
-- texture descriptors and offsets
-- transfer modes
-- light assignments
-- media
-- platforms and platform extents
-- scenery and map objects
-- editor-stable IDs
-- diagnostic annotations
+Working:
 
-A preview surface carries the minimum information needed to draw and select it:
+- native `MTKView`
+- Retina-aware viewport
+- first-person camera
+- saved player-start initialization
+- configurable FOV/movement
+- continuous key-state movement
+- fly up/down
+- collision-aware movement
+- Use/Open Door
+- camera reset
+- whole-map orbit diagnostic
 
-- stable surface ID
-- owner polygon/side/object ID
-- surface kind
-- vertices and indices
-- texture descriptor
-- transfer mode
-- light index
-- selection mask
-- diagnostic flags
+### Visibility
 
-## Visibility
-
-Marathon's portal-connected and overlapping-space behavior must not be replaced
-with a naïve whole-level mesh. Visibility begins in the camera polygon and
-traverses connected portals using clipping windows.
-
-The initial Aleph One study/adaptation scope includes the concepts represented
-by `RenderVisTree`, `RenderSortPoly`, and `RenderRasterize`. The integration
-boundary emits renderer-neutral surfaces rather than immediate OpenGL calls.
-
-## Rendering backends
-
-### Metal
-
-The first production backend uses `MTKView` embedded in the existing AppKit
-window hierarchy.
-
-Initial passes:
-
-1. opaque floors, ceilings, and walls
-2. landscapes and special background surfaces
-3. transparent media and transfer modes
-4. sprites and scenery
-5. editor overlays and diagnostics
-6. selection outlines
-7. integer-ID picking
-
-Initial pipeline families:
-
-- opaque textured
-- landscape
-- transparent textured
-- additive
-- tint/static transfer modes
-- editor overlay
-- picking
-
-### Vulkan
-
-The Vulkan backend is a later portability stage for Linux and Windows. It must
-consume the same `PreviewFrame` representation as Metal.
-
-Do not shape the renderer abstraction like a complete generic graphics API.
-Expose only the operations Visual Mode needs.
-
-### Reference renderer
-
-A minimal reference backend may be used for deterministic geometry, visibility,
-and picking tests. It need not reproduce every visual effect.
-
-## Interaction model
-
-### Forge parity
-
-- first-person navigation
-- select walls, floors, ceilings, and objects
-- texture eyedropper
-- apply texture
-- edit texture offsets
-- align adjacent walls
-- set transfer mode
-- adjust floor and ceiling heights
-- edit platform extents
-- move and rotate objects
-- synchronize selection with 2D mode
-- preserve all edits through save/reopen
-
-### Modern improvements
-
-- live surface inspector
-- GPU ID picking
-- multi-selection
-- copy/paste complete surface attributes
-- texture flood fill
-- alignment chains
-- searchable texture browser
-- selection outline
-- measurement overlay
-- portal/clipping visualization
-- invalid-reference overlays
-- platform motion preview
-- media-height preview
-- light-only/full-bright/texture-ID render modes
-- temporary export and “Play From Here” in Aleph One
-
-## Milestones
-
-## Current stabilization gate — no commit yet
-
-VM-4A / TEX-1A.1 / LEVEL-SYNC-1A is installed and builds, and its collision,
-door interaction, and live map synchronization are under runtime test. The
-phase remains deliberately uncommitted while TEX-1A.2 investigates incomplete
-wall texture rendering in first-person Visual Mode.
-
-The immediate gate is not “reduce the fallback count.” It is to account for
-every expected surface through the complete pipeline:
-
-```text
-map topology and side ownership
-        -> generated surface and texture layer
-        -> portal-visible frame
-        -> Shapes collection / bitmap lookup
-        -> Metal upload
-        -> opaque or translucent draw submission
-```
-
-A commit or milestone tag is permitted only when each expected wall is either
-rendered with its assigned texture or has a precise audit result proving that
-the map's texture reference is genuinely empty or invalid.
-
-### VM-0 — preserve current behavior
-
-- capture current OpenGL Visual Mode behavior
-- document controls and known failures
-- retain the existing implementation behind a legacy switch
-- add representative visual fixtures
-
-Exit gate: existing behavior can be compared against the replacement.
-
-### VM-1 — preview-core foundation
-
-- add renderer-neutral IDs and primitive types
-- add immutable `PreviewScene`
-- add `PreviewRenderer` interface
-- add standalone compile validation
-- document thread and ownership rules
-
-Exit gate: the preview core compiles without AppKit, Metal, Vulkan, or OpenGL.
-
-### VM-2 — read-only Metal room
-
-- embed `MTKView`
-- camera and projection
-- walls, floors, and ceilings
-- depth buffer
-- placeholder textures
-- resize and Retina correctness
-
-Exit gate: a simple room from Pfhorge data renders reliably.
-
-### VM-3 — Marathon visibility
+Working:
 
 - camera polygon lookup
-- portal traversal
-- clipping windows
-- overlapping-space fixtures
-- visible polygon ordering
-- void handling
+- portal graph
+- projected portal traversal
+- vertical clipping
+- portal-filtered visible frames
+- upper/lower wall splitting
+- portal diagnostics
 
-Exit gate: 5D-space fixtures match Aleph One visibility.
+The August 2026 `Death by accident` regression test found and fixed a major
+portal-adjacency bug. Old documents may contain empty polygon-adjacency caches
+while the line records retain correct clockwise/counterclockwise polygon
+ownership. Visual Mode now reconstructs portal neighbors from line ownership,
+eliminating the tested invisible collision walls.
 
-### VM-4 — texture and lighting fidelity
+### Textures
 
-#### VM-4A / TEX-1A.1 / LEVEL-SYNC-1A — provisional implementation
+Working:
 
-- classic Shapes texture decoding and Metal upload
-- wall/floor/ceiling UV semantics
-- collision-aware first-person movement
-- platform and door preview interaction
-- live rebuilds from unsaved map edits
-- level environment synchronization
-- initial map and texture diagnostics
+- classic Shapes decoding
+- collection/bitmap descriptors
+- wall/floor/ceiling texture coordinates
+- `MTLTexture` cache/upload
+- nearest/linear/trilinear filtering controls
+- anisotropic filtering controls
+- environment-aware collections
+- missing-texture diagnostics
+- live texture updates from unsaved editor state
 
-Status: build-complete but not commit-ready.
+Still incomplete:
 
-#### TEX-1A.2 — surface completeness and wall resolution
+- some wall surfaces have unresolved side/texture provenance
+- landscapes are currently rendered with ordinary wall-style UV assumptions
+- transfer-mode effects are not yet fully evaluated by Metal
+- lighting is not yet Marathon-faithful
+- transparent/media/composite behavior remains incomplete
 
-- treat Marathon line-owned clockwise/counterclockwise side relationships as
-  authoritative instead of aliasing a missing polygon side to side zero
-- record stable polygon, line, side, edge, and texture-layer provenance
-- distinguish missing geometry from invalid descriptors, missing Shapes images,
-  conversion failures, upload failures, and cached negative lookups
-- render primary, secondary, and transparent side definitions in their correct
-  wall bands
-- route transparent portal textures through the translucent Metal pass
-- compare all topology-derived surfaces with the portal-visible frame
-- keep the existing 2D Texture Inspector unchanged
+### Unified Forge-style workspace
 
-Exit gate: every expected first-person wall surface is textured or has an
-explicitly justified invalid/empty map reference; Detention Center and the
-fixed wall fixtures pass without collision, door, live-sync, or document-dirty
-regressions.
+Working:
 
-#### VM-4B — remaining fidelity
+- Metal viewport and palette in one `NSWindow`
+- Collection popup
+- real clickable Shapes thumbnails
+- selection highlight
+- Texture Mode popup
+- Light popup
+- Apply Textures / Apply Lights state
+- persistent frame position/size
+- native AppKit controls
 
-- light intensity and state evaluation
-- landscapes and media parity
-- animated textures
-- transfer modes
-- composite/control-panel overlay parity
+Intentional limitation:
+
+**The palette does not paint the map yet.**
+
+That is deliberate. Surface picking and map-field provenance must be correct
+before 3D clicks are allowed to mutate `LESide` or `LEPolygon`.
+
+## Current diagnostics
+
+Visual Mode already exposes runtime counters for:
+
+- visible polygons
+- visible surfaces
+- portals
+- textured/fallback surfaces
+- side resolution
+- invalid texture lookups
+- repository/image/conversion/upload failures
+- collision state
+- platform/door state
+- topology reconstruction
+
+These diagnostics remain part of the normal development renderer until the
+remaining topology/texture problems are accounted for.
+
+# Immediate work
+
+## VM-FIDELITY — surface completeness
+
+Goal: explain every wall that should be visible.
+
+For every generated wall surface retain:
+
+```text
+stable surface ID
+polygon ID
+edge index
+line ID
+side ID
+wall band/layer
+texture descriptor
+transfer mode
+light index
+```
+
+Classify failures independently:
+
+```text
+geometry never generated
+side genuinely absent
+side resolver failed
+descriptor empty
+descriptor invalid
+Shapes image missing
+conversion failed
+Metal upload failed
+surface not in visible frame
+surface draw submission missing
+```
+
+Do not collapse these into a generic "fallback texture" count.
+
+Acceptance:
+
+- every expected visible wall is accounted for
+- no guessed neighboring texture is used as a cosmetic fix
+- diagnostics identify the precise source record
+
+## VM-LANDSCAPE — real sky/space rendering
+
+Goal: reproduce Marathon landscape behavior.
+
+Landscape surfaces need a dedicated render path because they are distant,
+view-relative environments rather than ordinary wall textures.
+
+Implement:
+
+- dedicated landscape pipeline/state
+- camera/yaw-relative horizontal sampling
+- correct vertical scaling
+- correct wrap behavior
+- correct collection/bitmap source
 - fixed-camera comparison fixtures
+- engine-family differences where observable
 
-Exit gate: fixed-camera captures are acceptably equivalent to Aleph One.
+Acceptance:
 
-### VM-5 / TEX-2A — reliable surface selection
+- camera rotation pans through the landscape correctly
+- camera translation does not make the landscape behave like a nearby wall
+- representative captures match Aleph One closely enough for editing
 
-- integer-ID attachment
-- stable polygon, line, side, edge, and texture-layer provenance
-- primary/secondary/transparent/floor/ceiling identification
+## VM-TRANSFER — transfer modes and lighting
+
+Build the common shader/uniform infrastructure once, then implement effects
+incrementally.
+
+Initial order:
+
+1. Normal
+2. Landscape
+3. Pulsate
+4. Wobble / Fast Wobble
+5. Horizontal Slide / Fast Horizontal Slide
+6. Vertical Slide / Fast Vertical Slide
+7. Wander / Fast Wander
+8. lighting/state evaluation
+9. transparency/media
+10. remaining specialized effects
+
+Acceptance:
+
+- transfer mode is no longer metadata ignored by the fragment shader
+- animated effects use deterministic time inputs in regression tests
+
+## VM-PICK — reliable surface selection
+
+Preferred implementation should be chosen from the current mesh architecture,
+not from a predetermined graphics trick.
+
+Candidates:
+
+- CPU ray/triangle intersection using retained preview geometry
+- GPU integer-ID attachment
+- hybrid path if CPU metadata and GPU selection have different strengths
+
+Regardless of technique, a hit must resolve to:
+
+```text
+surface
+polygon
+edge
+line
+side
+layer
+texture descriptor
+light
+transfer mode
+```
+
+Add:
+
 - hover highlight
-- click selection
-- eyedropper foundation
-- 2D/3D selection synchronization
-- selection persistence during scene rebuilds
+- click highlight
+- surface inspector
+- unresolved-wall overlay
+- portal-boundary overlay
+- optional surface IDs
 
-Exit gate: every visible editable surface and its exact texture slot can be
-selected unambiguously.
+Acceptance:
 
-### VM-6 / TEX-2B / TEX-2C — Forge-compatible editing
+- the exact editable field under the cursor is deterministic
+- selection survives scene rebuilds by stable ID
 
-#### Companion Visual Mode Texture Palette
+## VM-EDIT — Forge-compatible map mutation
 
-- preserve the existing 2D Texture Inspector unchanged and canonical
-- add a separate AppKit `NSWindow` that opens beside the Visual Mode window
-- associate one palette with one Visual Mode/document session
-- allow the palette to close and reopen without closing Visual Mode
-- remember independent size and position
-- optionally attach as a child window, snap, or detach; permanent docking is
-  desirable but not required for the first implementation
-- share `LESide`, `LEPolygon`, `TextureRepository`, document notifications, and
-  `NSUndoManager` with the existing inspector
-- never introduce Visual Mode-only texture state
+Only after VM-PICK passes.
 
-#### Editing workflows
+Connect the existing palette to:
 
-- texture paint and eyedropper
-- explicit primary/secondary/transparent/floor/ceiling target selection
-- offset and alignment editing
-- transfer modes
-- floor/ceiling height editing
-- platform bounds
-- object movement and rotation
+- texture paint
+- eyedropper
+- primary texture
+- secondary texture
+- transparent texture
+- floor texture
+- ceiling texture
+- light
+- transfer mode
+- offsets/alignment
 - undo/redo
-- immediate synchronization between both texture interfaces and Metal
-- save/reopen validation
+- 2D/3D synchronization
 
-Exit gate: core Forge Visual Mode workflows pass semantic round-trip tests and
-both texture interfaces remain synchronized.
+Acceptance:
 
-### VM-7 — diagnostics and playtesting
+- edits round-trip through save/reopen
+- Undo returns the exact prior map state
+- Visual Mode never creates a separate shadow texture state
 
-- diagnostic overlays
-- malformed geometry highlighting
+# Later work
+
+## Geometry/visibility hardening
+
+- 5D-space fixtures
+- inherited clipping windows
+- portal loops
+- moving-platform transitions
+- polygon/surface depth ordering
+- malformed geometry visualization
+
+## Media and animated surfaces
+
+- liquids
+- media height
+- translucency
+- animated textures
+- control panels/composite surfaces
+
+## Entities
+
+- scenery
+- items
+- weapons
+- monsters
+- players
+- animation sequences
+- color tables
+- optional model replacements
+
+## Editor diagnostics
+
+- topology overlays
 - tag/switch/light/media visualization
+- validation warnings directly in 3D
+- measurement tools
+- texture-ID/full-bright/light-only modes
+
+## Playtesting
+
 - temporary export
-- launch Aleph One from selected polygon
-- screenshot regression suite
+- Play From Here
+- launch Aleph One at selected polygon
+- preserve temporary files and diagnostics on failure
 
-Exit gate: Visual Mode is useful for both authoring and map debugging.
+## Vulkan
 
-### VM-8 — Vulkan portability
+Vulkan begins after the Metal/reference behavior is covered well enough that
+"same `PreviewFrame`, different backend" is a meaningful test.
 
-- Vulkan backend
-- Linux and Windows window integration
-- shader-source strategy
-- cross-backend golden-image tolerances
-- optional MoltenVK evaluation
+Targets:
 
-Exit gate: representative scenes render and select correctly on all targets.
+- Linux
+- Windows
+- shared renderer-neutral semantics
+- cross-backend image tolerances
+- optional MoltenVK investigation
 
-## Performance rules
+# Performance rules
 
-- do not rebuild the entire scene for a texture-offset change
-- track dirty polygons, sides, textures, and objects
-- use stable IDs rather than raw object pointers
-- keep GPU resources cached by content identity
-- avoid synchronous full-frame GPU readback
-- read only the clicked picking pixel
-- profile before introducing complex batching
-- correctness outranks premature rendering optimization
+- correctness first
+- no full-scene rebuild for a texture-offset-only edit
+- dirty tracking by stable IDs
+- cache GPU resources by content identity
+- avoid synchronous full-frame readback
+- if GPU picking is used, read only the requested pixel
+- profile before adding complex batching
 
-## Testing
+# Regression strategy
 
-Each visual fixture records:
+Each visual fixture should record:
 
 - source/provenance
-- expected engine family
+- expected Marathon engine family
 - camera polygon
-- camera position and yaw/pitch
-- visible polygon IDs
-- visible surface IDs
-- selected surface result for known screen coordinates
-- reference image when redistribution allows it
+- position
+- yaw/pitch
+- visible polygons
+- visible surfaces
+- selected surface for known screen coordinates
+- texture/transfer/light state
+- reference image when redistribution permits it
 
-Regression categories:
+Important categories:
 
-- visibility
+- portal visibility
 - clipping
-- geometry
+- side ownership
+- wall bands
 - texture coordinates
+- landscapes
 - lighting
 - transfer modes
 - media
-- landscapes
 - sprites
 - picking
 - save/reopen semantics
 
-## Non-goals
+The current **Death by accident** map is the primary runtime regression fixture
+for portal movement and the remaining surface/landscape fidelity work.
 
-- embedding the entire Aleph One game
-- simulating monster AI
-- implementing weapons or HUD
-- replacing the map model during early Visual Mode work
-- converting the application to Swift before behavior is covered
-- making Vulkan a prerequisite for the first working macOS preview
+# Non-goals
+
+- embedding the complete Aleph One game
+- monster AI
+- weapon/HUD simulation
+- replacing Pfhorge's map model during renderer work
+- rewriting the application in Swift before behavior is covered
+- forcing Vulkan into the first reliable macOS implementation
