@@ -1311,6 +1311,19 @@ fragment float4 pfhorgePreviewFragment(
         _previewScene.textureAudit.sidesResolvedScan,
         _previewScene.textureAudit.sideResolutionMisses,
         _previewScene.textureAudit.rejectedStalePolygonSides);
+
+    NSLog(
+        @"VM-4D topology audit: edges=%u transparent=%u "
+         "adjResolve[cwOwner=%u ccOwner=%u direct=%u miss=%u self=%u] "
+         "portals=%zu",
+        _previewScene.topologyAudit.polygonEdges,
+        _previewScene.topologyAudit.transparentEdges,
+        _previewScene.topologyAudit.adjacencyResolvedClockwiseOwner,
+        _previewScene.topologyAudit.adjacencyResolvedCounterclockwiseOwner,
+        _previewScene.topologyAudit.adjacencyResolvedDirect,
+        _previewScene.topologyAudit.adjacencyResolutionMisses,
+        _previewScene.topologyAudit.rejectedSelfAdjacency,
+        _previewScene.portals.size());
 }
 
 - (void)checkForLiveLevelChangesAtTime:(NSTimeInterval)time
@@ -1598,11 +1611,11 @@ fragment float4 pfhorgePreviewFragment(
     _textureImageConversionFailureCount = 0U;
     _textureUploadFailureCount = 0U;
 
-    // DIAGNOSTIC ONLY:
-// Render every scene surface while keeping the first-person camera.
-// This isolates portal visibility filtering from texture rendering.
-const std::vector<PreviewSurface>& surfaces =
-    _previewScene.surfaces;
+    // VM-4D: render the frame selected by the current camera mode.
+    // First-person mode uses the repaired portal traversal; P/orbit mode still
+    // deliberately supplies BuildWholeScenePreviewFrame for diagnostics.
+    const std::vector<PreviewSurface>& surfaces =
+        _previewFrame.visibleSurfaces;
 
     std::size_t indexCount = 0U;
     for (const PreviewSurface& surface : surfaces) {
@@ -2116,6 +2129,19 @@ drawableSizeWillChange:(CGSize)size
     }
     if (!event.isARepeat && key == diagnosticsKey) {
         [self logPortalDiagnostics];
+        NSLog(
+            @"VM-4D topology audit: edges=%u transparent=%u "
+             "adjResolve[cwOwner=%u ccOwner=%u direct=%u miss=%u self=%u] "
+             "portals=%zu cameraPoly=%u",
+            _previewScene.topologyAudit.polygonEdges,
+            _previewScene.topologyAudit.transparentEdges,
+            _previewScene.topologyAudit.adjacencyResolvedClockwiseOwner,
+            _previewScene.topologyAudit.adjacencyResolvedCounterclockwiseOwner,
+            _previewScene.topologyAudit.adjacencyResolvedDirect,
+            _previewScene.topologyAudit.adjacencyResolutionMisses,
+            _previewScene.topologyAudit.rejectedSelfAdjacency,
+            _previewScene.portals.size(),
+            _portalSeedPolygonID);
         NSLog(
             @"VM-4A texture audit: refs=%u valid=%u invalid=%u empty=%u "
              "walls=%u textured=%u missingSide=%u platforms=%zu",

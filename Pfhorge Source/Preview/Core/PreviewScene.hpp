@@ -109,6 +109,17 @@ struct PreviewTextureAudit final {
     std::uint32_t transparentWallSegments = 0U;
 };
 
+
+struct PreviewTopologyAudit final {
+    std::uint32_t polygonEdges = 0U;
+    std::uint32_t transparentEdges = 0U;
+    std::uint32_t adjacencyResolvedClockwiseOwner = 0U;
+    std::uint32_t adjacencyResolvedCounterclockwiseOwner = 0U;
+    std::uint32_t adjacencyResolvedDirect = 0U;
+    std::uint32_t adjacencyResolutionMisses = 0U;
+    std::uint32_t rejectedSelfAdjacency = 0U;
+};
+
 struct PreviewScene final {
     std::uint64_t revision = 0;
     std::int16_t environmentCode = 0;
@@ -119,6 +130,7 @@ struct PreviewScene final {
     std::vector<PreviewPlayerStart> playerStarts;
     std::vector<PreviewPlatform> platforms;
     PreviewTextureAudit textureAudit;
+    PreviewTopologyAudit topologyAudit;
 
     [[nodiscard]] bool empty() const noexcept {
         return polygons.empty() && surfaces.empty();

@@ -461,11 +461,40 @@ inline void appendWallSegment(
     return line != nil && (line.flags & LELineTransparent) != 0;
 }
 
-[[nodiscard]] inline StableID validAdjacentPolygonID(
-    LEPolygon *polygon,
-    NSUInteger edgeIndex,
+[[nodiscard]] inline StableID polygonIDForObject(
+    LEPolygon *candidate,
     NSArray<LEPolygon *> *polygons) noexcept
 {
+    if (candidate == nil || polygons == nil) {
+        return kInvalidPreviewID;
+    }
+
+    const NSUInteger index =
+        [polygons indexOfObjectIdenticalTo:candidate];
+    return index == NSNotFound
+        ? kInvalidPreviewID
+        : static_cast<StableID>(index);
+}
+
+/**
+ * Resolves the polygon across one transparent line without using the legacy
+ * LEPolygon-adjacentPolygonIndexesAtIndex: nil-to-zero accessor.
+ *
+ * Old Pfhorge documents can have an empty polygon adjacency cache while the
+ * LELine record still owns correct clockwise/counterclockwise polygon links.
+ * Treat line ownership as authoritative, then use a non-nil direct polygon
+ * pointer only as a fallback.
+ */
+[[nodiscard]] inline StableID resolvedAdjacentPolygonID(
+    LEPolygon *polygon,
+    NSUInteger edgeIndex,
+    NSArray<LEPolygon *> *polygons,
+    PreviewTopologyAudit *audit) noexcept
+{
+    if (audit != nullptr) {
+        ++audit->polygonEdges;
+    }
+
     if (polygon == nil ||
         edgeIndex >= static_cast<NSUInteger>(
             std::max<short>(0, polygon.getTheVertexCount))) {
@@ -479,16 +508,76 @@ inline void appendWallSegment(
         return kInvalidPreviewID;
     }
 
-    const short adjacentIndex =
-        [polygon adjacentPolygonIndexesAtIndex:
-            static_cast<short>(edgeIndex)];
-
-    if (adjacentIndex < 0 ||
-        static_cast<NSUInteger>(adjacentIndex) >= polygons.count) {
-        return kInvalidPreviewID;
+    if (audit != nullptr) {
+        ++audit->transparentEdges;
     }
 
-    return static_cast<StableID>(adjacentIndex);
+    const auto acceptCandidate =
+        [&](LEPolygon *candidate,
+            std::uint32_t PreviewTopologyAudit::*counter) -> StableID {
+            if (candidate == nil) {
+                return kInvalidPreviewID;
+            }
+
+            if (candidate == polygon) {
+                if (audit != nullptr) {
+                    ++audit->rejectedSelfAdjacency;
+                }
+                return kInvalidPreviewID;
+            }
+
+            const StableID candidateID =
+                polygonIDForObject(candidate, polygons);
+
+            if (candidateID == kInvalidPreviewID) {
+                return kInvalidPreviewID;
+            }
+
+            if (audit != nullptr) {
+                ++(audit->*counter);
+            }
+
+            return candidateID;
+        };
+
+    if (line != nil && line.clockwisePolygonObject == polygon) {
+        const StableID candidate =
+            acceptCandidate(
+                line.conterclockwisePolygonObject,
+                &PreviewTopologyAudit::adjacencyResolvedClockwiseOwner);
+        if (candidate != kInvalidPreviewID) {
+            return candidate;
+        }
+    }
+
+    if (line != nil && line.conterclockwisePolygonObject == polygon) {
+        const StableID candidate =
+            acceptCandidate(
+                line.clockwisePolygonObject,
+                &PreviewTopologyAudit::adjacencyResolvedCounterclockwiseOwner);
+        if (candidate != kInvalidPreviewID) {
+            return candidate;
+        }
+    }
+
+    LEPolygon *direct =
+        [polygon adjacentPolygonObjectAtIndex:
+            static_cast<short>(edgeIndex)];
+
+    const StableID directID =
+        acceptCandidate(
+            direct,
+            &PreviewTopologyAudit::adjacencyResolvedDirect);
+
+    if (directID != kInvalidPreviewID) {
+        return directID;
+    }
+
+    if (audit != nullptr) {
+        ++audit->adjacencyResolutionMisses;
+    }
+
+    return kInvalidPreviewID;
 }
 
 struct PlatformGeometry final {
@@ -724,10 +813,15 @@ inline void buildPlatformGeometry(
             detail::hashValue(
                 hash,
                 static_cast<std::uint16_t>(polygonSideIndex));
+            const StableID adjacentPolygonID =
+                detail::resolvedAdjacentPolygonID(
+                    polygon,
+                    static_cast<NSUInteger>(index),
+                    polygons,
+                    nullptr);
             detail::hashValue(
                 hash,
-                static_cast<std::uint16_t>(
-                    [polygon adjacentPolygonIndexesAtIndex:index]));
+                static_cast<std::uint64_t>(adjacentPolygonID));
         }
         PhMedia *media = polygon.mediaObject;
         if (media != nil) {
@@ -806,7 +900,7 @@ inline void buildPlatformGeometry(
     const PreviewSceneBuildOptions& options)
 {
     PreviewScene scene;
-    scene.revision = 5U;
+    scene.revision = 6U;
 
     if (levelData == nil) {
         return scene;
@@ -880,10 +974,11 @@ inline void buildPlatformGeometry(
                     ? kInvalidPreviewID
                     : static_cast<StableID>(endpointIndex));
             previewPolygon.adjacentPolygonIDs.push_back(
-                detail::validAdjacentPolygonID(
+                detail::resolvedAdjacentPolygonID(
                     polygon,
                     vertexIndex,
-                    polygons));
+                    polygons,
+                    &scene.topologyAudit));
         }
         scene.polygons[polygonIndex] = previewPolygon;
 
