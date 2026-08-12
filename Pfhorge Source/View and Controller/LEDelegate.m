@@ -37,6 +37,7 @@
 
 #include "../Splash/PfhorgeSplashController.inc"
 #include "../Content/PfhorgeContentManager.inc"
+#include "../Startup/PfhorgeStartCenterController.inc"
 
 
 #pragma mark - Revival Support Directories
@@ -275,9 +276,25 @@ static void EnsurePfhorgeSupportDirectories(void)
     [self setupAppleScriptMenu];
     [self setupPluginMenu];
     PfhorgeInstallContentAndVisualModeMenus(self);
+    PfhorgeInstallStartupExperience(self);
 
     // Folder/plugin alerts must finish before the splash appears.
-    [[PfhorgeSplashController sharedController] showSplash];
+    // STARTUP-1A: persistent launch splash.
+    // It remains visible after texture initialization and hands off to
+    // Start Center only when the user explicitly clicks it away.
+    [[PfhorgeSplashController sharedController]
+        showLaunchSplashWithCompletion:^{
+            dispatch_async(
+                dispatch_get_main_queue(),
+                ^{
+                    if ([PfhorgeStartCenterController shouldShowAtLaunch] &&
+                        [NSDocumentController sharedDocumentController]
+                            .documents.count == 0U) {
+                        [[PfhorgeStartCenterController sharedController]
+                            showStartCenter];
+                    }
+                });
+        }];
     
      // Load The Textures
     //[[PhTextureRepository sharedTextureRepository] loadTheTextures];
@@ -291,7 +308,8 @@ static void EnsurePfhorgeSupportDirectories(void)
     
     [startupWinController loadTexturesNow];
 
-    [[PfhorgeSplashController sharedController] dismissSplash];
+    // STARTUP-1A intentionally does not auto-dismiss here.
+    // A user click is the launch-splash dismissal path.
     
     [LEInspectorController sharedInspectorController];
     [LEPaletteController sharedPaletteController];

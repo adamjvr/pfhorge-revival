@@ -1,116 +1,292 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Adam Vadala-Roth
+//
+// STARTUP-1A: persistent launch/about splash.
+// The background art remains an external raster asset; typography, tinting,
+// vignette, layout, credits, and click behavior are native AppKit drawing.
 
 #import <Cocoa/Cocoa.h>
 
-@interface PfhorgeSplashView : NSView
+typedef NS_ENUM(NSUInteger, PfhorgeSplashPresentationMode) {
+    PfhorgeSplashPresentationModeLaunch = 0,
+    PfhorgeSplashPresentationModeAbout = 1,
+};
 
-@property(nonatomic, strong) NSImage *artwork;
+static NSRect PfhorgeSplashAspectFillSourceRect(NSImage *image, NSRect destination)
+{
+    NSSize imageSize = image.size;
+    if (imageSize.width <= 0.0 || imageSize.height <= 0.0 ||
+        destination.size.width <= 0.0 || destination.size.height <= 0.0) {
+        return NSZeroRect;
+    }
 
+    CGFloat sourceAspect = imageSize.width / imageSize.height;
+    CGFloat destinationAspect = destination.size.width / destination.size.height;
+    NSRect source = NSMakeRect(0.0, 0.0, imageSize.width, imageSize.height);
+
+    if (sourceAspect > destinationAspect) {
+        CGFloat croppedWidth = imageSize.height * destinationAspect;
+        source.origin.x = (imageSize.width - croppedWidth) * 0.5;
+        source.size.width = croppedWidth;
+    } else {
+        CGFloat croppedHeight = imageSize.width / destinationAspect;
+        source.origin.y = (imageSize.height - croppedHeight) * 0.5;
+        source.size.height = croppedHeight;
+    }
+
+    return source;
+}
+
+static void PfhorgeSplashAppendCreditLine(
+    NSMutableAttributedString *credits,
+    NSString *label,
+    NSString *value,
+    NSFont *labelFont,
+    NSFont *valueFont,
+    NSColor *color,
+    NSMutableParagraphStyle *paragraphStyle)
+{
+    if (credits.length > 0U) {
+        [credits appendAttributedString:
+            [[NSAttributedString alloc] initWithString:@"\n"
+                                            attributes:@{
+            NSFontAttributeName: valueFont,
+            NSForegroundColorAttributeName: color,
+            NSParagraphStyleAttributeName: paragraphStyle,
+        }]];
+    }
+
+    [credits appendAttributedString:
+        [[NSAttributedString alloc] initWithString:label
+                                        attributes:@{
+        NSFontAttributeName: labelFont,
+        NSForegroundColorAttributeName: color,
+        NSParagraphStyleAttributeName: paragraphStyle,
+    }]];
+
+    [credits appendAttributedString:
+        [[NSAttributedString alloc] initWithString:value
+                                        attributes:@{
+        NSFontAttributeName: valueFont,
+        NSForegroundColorAttributeName: color,
+        NSParagraphStyleAttributeName: paragraphStyle,
+    }]];
+}
+
+static NSAttributedString *PfhorgeSplashCredits(void)
+{
+    NSFont *labelFont = [NSFont systemFontOfSize:10.75 weight:NSFontWeightSemibold];
+    NSFont *valueFont = [NSFont systemFontOfSize:10.75 weight:NSFontWeightRegular];
+    NSColor *color = [NSColor colorWithCalibratedWhite:0.97 alpha:1.0];
+
+    NSMutableParagraphStyle *paragraphStyle = [[NSMutableParagraphStyle alloc] init];
+    paragraphStyle.lineSpacing = 1.5;
+    paragraphStyle.paragraphSpacing = 1.5;
+    paragraphStyle.lineBreakMode = NSLineBreakByWordWrapping;
+
+    NSMutableAttributedString *credits = [[NSMutableAttributedString alloc] init];
+
+    PfhorgeSplashAppendCreditLine(
+        credits, @"Original Author: ",
+        @"Joshua D. Orr — Source archive: github.com/MaddTheSane/Pfhorge",
+        labelFont, valueFont, color, paragraphStyle);
+
+    PfhorgeSplashAppendCreditLine(
+        credits, @"Revival & Maintenance: ",
+        @"Adam Vadala-Roth — github.com/adamjvr/pfhorge-revival",
+        labelFont, valueFont, color, paragraphStyle);
+
+    PfhorgeSplashAppendCreditLine(
+        credits, @"License: ",
+        @"GNU General Public License v3",
+        labelFont, valueFont, color, paragraphStyle);
+
+    PfhorgeSplashAppendCreditLine(
+        credits, @"Background Artwork: ",
+        @"Craig Mullins — Marathon 2 concept artwork",
+        labelFont, valueFont, color, paragraphStyle);
+
+    PfhorgeSplashAppendCreditLine(
+        credits, @"Acknowledgements: ",
+        @"Bungie, Inc. and the Marathon series; the Aleph One project and its contributors.",
+        labelFont, valueFont, color, paragraphStyle);
+
+    PfhorgeSplashAppendCreditLine(
+        credits, @"Project Notice: ",
+        @"Pfhorge is an independent open-source project and is not affiliated with or endorsed by Bungie.",
+        labelFont, valueFont, color, paragraphStyle);
+
+    PfhorgeSplashAppendCreditLine(
+        credits, @"Bungie Open Source: ",
+        @"bungie.net/7/en/Legal/OpenSource",
+        labelFont, valueFont, color, paragraphStyle);
+
+    PfhorgeSplashAppendCreditLine(
+        credits, @"Aleph One: ",
+        @"alephone.lhowon.org",
+        labelFont, valueFont, color, paragraphStyle);
+
+    return credits;
+}
+
+@interface PfhorgeSplashWindow : NSWindow
 @end
 
+@implementation PfhorgeSplashWindow
+- (BOOL)canBecomeKeyWindow { return YES; }
+- (BOOL)canBecomeMainWindow { return NO; }
+@end
+
+@interface PfhorgeSplashView : NSView
+@property(nonatomic, strong) NSImage *artwork;
+@property(nonatomic) PfhorgeSplashPresentationMode presentationMode;
+@property(nonatomic, copy) void (^clickHandler)(void);
+@end
 
 @implementation PfhorgeSplashView
+
+- (BOOL)acceptsFirstMouse:(NSEvent *)event
+{
+    (void)event;
+    return YES;
+}
+
+- (void)mouseDown:(NSEvent *)event
+{
+    (void)event;
+    if (self.clickHandler != nil) {
+        self.clickHandler();
+    }
+}
 
 - (void)drawRect:(NSRect)dirtyRect
 {
     [super drawRect:dirtyRect];
+    (void)dirtyRect;
 
     NSRect bounds = self.bounds;
-
-    NSGradient *background =
-        [[NSGradient alloc]
-            initWithStartingColor:
-                [NSColor colorWithCalibratedRed:0.035
-                                          green:0.045
-                                           blue:0.075
-                                          alpha:1.0]
-                      endingColor:
-                [NSColor colorWithCalibratedRed:0.16
-                                          green:0.07
-                                           blue:0.20
-                                          alpha:1.0]];
-
-    [background drawInRect:bounds angle:90.0];
+    [NSColor.blackColor setFill];
+    NSRectFill(bounds);
 
     if (self.artwork != nil) {
-        [self.artwork
-            drawInRect:bounds
-              fromRect:NSZeroRect
-             operation:NSCompositingOperationSourceOver
-              fraction:1.0
-        respectFlipped:YES
-                 hints:nil];
-
-        return;
+        NSRect source = PfhorgeSplashAspectFillSourceRect(self.artwork, bounds);
+        [self.artwork drawInRect:bounds
+                        fromRect:source
+                       operation:NSCompositingOperationSourceOver
+                        fraction:1.0
+                  respectFlipped:YES
+                           hints:@{NSImageHintInterpolation: @(NSImageInterpolationHigh)}];
+    } else {
+        NSGradient *fallback = [[NSGradient alloc]
+            initWithStartingColor:[NSColor colorWithCalibratedRed:0.035 green:0.045 blue:0.050 alpha:1.0]
+                      endingColor:[NSColor colorWithCalibratedRed:0.090 green:0.070 blue:0.045 alpha:1.0]];
+        [fallback drawInRect:bounds angle:90.0];
     }
 
+    // Live color/tone treatment matching the approved mockup.
+    [[NSColor colorWithCalibratedRed:0.020 green:0.030 blue:0.015 alpha:0.19] setFill];
+    NSRectFillUsingOperation(bounds, NSCompositingOperationSourceOver);
+
+    NSGradient *vignette = [[NSGradient alloc]
+        initWithColorsAndLocations:
+            [NSColor colorWithCalibratedWhite:0.0 alpha:0.0], 0.0,
+            [NSColor colorWithCalibratedWhite:0.0 alpha:0.78], 1.0,
+            nil];
+
+    CGFloat outerRadius = hypot(bounds.size.width, bounds.size.height) * 0.64;
+    NSPoint vignetteCenter = NSMakePoint(NSMidX(bounds), NSMidY(bounds) + 14.0);
+    [vignette drawFromCenter:vignetteCenter
+                      radius:70.0
+                    toCenter:vignetteCenter
+                      radius:outerRadius
+                     options:0];
+
+    NSGradient *bottomShade = [[NSGradient alloc]
+        initWithStartingColor:[NSColor colorWithCalibratedWhite:0.0 alpha:0.68]
+                  endingColor:[NSColor colorWithCalibratedWhite:0.0 alpha:0.0]];
+    [bottomShade drawInRect:NSMakeRect(0.0, 0.0, bounds.size.width, bounds.size.height * 0.46)
+                      angle:90.0];
+
+    // Bold flat white title in a translucent-tint box.
+    //
+    // STARTUP-1A.1: fit the box to the actual rendered wordmark instead of
+    // using a broad fixed width. This keeps the approved left/right padding
+    // visually balanced even if the font metrics change slightly.
     NSDictionary *titleAttributes = @{
-        NSFontAttributeName:
-            [NSFont systemFontOfSize:44.0
-                              weight:NSFontWeightBlack],
-
-        NSForegroundColorAttributeName:
-            NSColor.whiteColor,
-
-        NSKernAttributeName:
-            @2.0
+        NSFontAttributeName: [NSFont systemFontOfSize:64.0 weight:NSFontWeightHeavy],
+        NSForegroundColorAttributeName: NSColor.whiteColor,
+        NSKernAttributeName: @(-1.25),
     };
 
-    NSDictionary *subtitleAttributes = @{
-        NSFontAttributeName:
-            [NSFont systemFontOfSize:15.0
-                              weight:NSFontWeightMedium],
+    NSString *title = @"Pfhorge";
+    NSSize titleSize = [title sizeWithAttributes:titleAttributes];
 
+    const CGFloat titleLeftPadding = 20.0;
+    const CGFloat titleRightPadding = 26.0;
+    const CGFloat titleBoxWidth = MIN(
+        titleSize.width + titleLeftPadding + titleRightPadding,
+        bounds.size.width - 68.0);
+
+    NSRect titleBox = NSMakeRect(
+        34.0,
+        bounds.size.height - 34.0 - 112.0,
+        titleBoxWidth,
+        112.0);
+
+    NSBezierPath *titlePanel = [NSBezierPath bezierPathWithRect:titleBox];
+    [[NSColor colorWithCalibratedWhite:0.03 alpha:0.36] setFill];
+    [titlePanel fill];
+
+    [[NSColor colorWithCalibratedWhite:1.0 alpha:0.98] setStroke];
+    titlePanel.lineWidth = 3.0;
+    [titlePanel stroke];
+
+    NSPoint titlePoint = NSMakePoint(
+        titleBox.origin.x + titleLeftPadding,
+        NSMidY(titleBox) - (titleSize.height * 0.5) - 1.0);
+
+    [title drawAtPoint:titlePoint withAttributes:titleAttributes];
+
+    CGFloat creditWidth = MIN(480.0, bounds.size.width * 0.50);
+    NSRect creditRect = NSMakeRect(
+        bounds.size.width - creditWidth - 28.0,
+        30.0,
+        creditWidth,
+        205.0);
+
+    [PfhorgeSplashCredits() drawWithRect:creditRect
+                                 options:NSStringDrawingUsesLineFragmentOrigin |
+                                         NSStringDrawingUsesFontLeading];
+
+    NSDictionary *hintAttributes = @{
+        NSFontAttributeName: [NSFont systemFontOfSize:11.0 weight:NSFontWeightMedium],
         NSForegroundColorAttributeName:
-            [NSColor colorWithWhite:0.82
-                              alpha:1.0]
+            [NSColor colorWithCalibratedWhite:0.88 alpha:0.82],
     };
 
-    NSString *title = @"PFHORGE";
-    NSString *subtitle =
-        @"MARATHON MAP EDITOR — REVIVAL BUILD";
+    NSString *hint =
+        self.presentationMode == PfhorgeSplashPresentationModeAbout
+        ? @"Click anywhere to close"
+        : @"Click anywhere to continue";
 
-    NSSize titleSize =
-        [title sizeWithAttributes:titleAttributes];
-
-    NSSize subtitleSize =
-        [subtitle sizeWithAttributes:subtitleAttributes];
-
-    [title
-        drawAtPoint:
-            NSMakePoint(
-                NSMidX(bounds) - (titleSize.width * 0.5),
-                NSMidY(bounds) + 4.0)
-      withAttributes:titleAttributes];
-
-    [subtitle
-        drawAtPoint:
-            NSMakePoint(
-                NSMidX(bounds) - (subtitleSize.width * 0.5),
-                NSMidY(bounds) - 34.0)
-      withAttributes:subtitleAttributes];
+    [hint drawAtPoint:NSMakePoint(34.0, 24.0) withAttributes:hintAttributes];
 }
 
 @end
 
-
 @interface PfhorgeSplashController : NSWindowController
-
 + (instancetype)sharedController;
-
 - (void)showSplash;
+- (void)showLaunchSplashWithCompletion:(void (^)(void))completion;
+- (void)showAboutSplash;
 - (void)dismissSplash;
-
 @end
-
 
 @interface PfhorgeSplashController ()
-
-@property(nonatomic) NSTimeInterval revivalShownAt;
 @property(nonatomic) BOOL revivalDismissScheduled;
-
+@property(nonatomic, copy) void (^revivalDismissHandler)(void);
+@property(nonatomic, strong) PfhorgeSplashView *revivalSplashView;
 @end
-
 
 @implementation PfhorgeSplashController
 
@@ -118,29 +294,23 @@
 {
     static PfhorgeSplashController *controller = nil;
     static dispatch_once_t onceToken;
-
     dispatch_once(&onceToken, ^{
-        controller =
-            [[PfhorgeSplashController alloc] init];
+        controller = [[PfhorgeSplashController alloc] init];
     });
-
     return controller;
 }
 
 - (instancetype)init
 {
-    NSRect frame =
-        NSMakeRect(0.0, 0.0, 720.0, 420.0);
+    NSRect frame = NSMakeRect(0.0, 0.0, 960.0, 540.0);
 
-    NSWindow *window =
-        [[NSWindow alloc]
-            initWithContentRect:frame
-                      styleMask:NSWindowStyleMaskBorderless
-                        backing:NSBackingStoreBuffered
-                          defer:NO];
+    PfhorgeSplashWindow *window = [[PfhorgeSplashWindow alloc]
+        initWithContentRect:frame
+                  styleMask:NSWindowStyleMaskBorderless
+                    backing:NSBackingStoreBuffered
+                      defer:NO];
 
     self = [super initWithWindow:window];
-
     if (self == nil) {
         return nil;
     }
@@ -150,19 +320,19 @@
     window.hasShadow = YES;
     window.level = NSFloatingWindowLevel;
     window.releasedWhenClosed = NO;
-    window.ignoresMouseEvents = YES;
+    window.ignoresMouseEvents = NO;
+    window.movableByWindowBackground = NO;
 
-    PfhorgeSplashView *view =
-        [[PfhorgeSplashView alloc]
-            initWithFrame:frame];
+    PfhorgeSplashView *view = [[PfhorgeSplashView alloc] initWithFrame:frame];
+    view.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    view.artwork = [NSImage imageNamed:@"PfhorgeSplashMullins"];
 
-    view.autoresizingMask =
-        NSViewWidthSizable |
-        NSViewHeightSizable;
+    __weak PfhorgeSplashController *weakSelf = self;
+    view.clickHandler = ^{
+        [weakSelf dismissSplash];
+    };
 
-    view.artwork =
-        [NSImage imageNamed:@"PfhorgeSplashArtwork"];
-
+    self.revivalSplashView = view;
     window.contentView = view;
 
     return self;
@@ -170,66 +340,69 @@
 
 - (void)showSplash
 {
-    self.revivalShownAt =
-        [NSDate timeIntervalSinceReferenceDate];
+    [self showLaunchSplashWithCompletion:nil];
+}
 
+- (void)showLaunchSplashWithCompletion:(void (^)(void))completion
+{
+    if (self.window.isVisible &&
+        self.revivalSplashView.presentationMode == PfhorgeSplashPresentationModeLaunch) {
+        return;
+    }
+
+    self.revivalDismissHandler = completion;
     self.revivalDismissScheduled = NO;
+    self.revivalSplashView.presentationMode = PfhorgeSplashPresentationModeLaunch;
+    [self.revivalSplashView setNeedsDisplay:YES];
 
     self.window.alphaValue = 1.0;
-
     [self.window center];
     [self showWindow:nil];
-    [self.window orderFrontRegardless];
+    [self.window makeKeyAndOrderFront:nil];
+    [self.window displayIfNeeded];
+}
+
+- (void)showAboutSplash
+{
+    if (self.window.isVisible &&
+        self.revivalSplashView.presentationMode == PfhorgeSplashPresentationModeLaunch) {
+        return;
+    }
+
+    self.revivalDismissHandler = nil;
+    self.revivalDismissScheduled = NO;
+    self.revivalSplashView.presentationMode = PfhorgeSplashPresentationModeAbout;
+    [self.revivalSplashView setNeedsDisplay:YES];
+
+    self.window.alphaValue = 1.0;
+    [self.window center];
+    [self showWindow:nil];
+    [self.window makeKeyAndOrderFront:nil];
     [self.window displayIfNeeded];
 }
 
 - (void)dismissSplash
 {
-    /*
-     * Prevent two callers from scheduling overlapping fade-outs.
-     */
-    if (self.revivalDismissScheduled) {
+    if (!self.window.isVisible || self.revivalDismissScheduled) {
         return;
     }
 
     self.revivalDismissScheduled = YES;
+    void (^dismissHandler)(void) = [self.revivalDismissHandler copy];
+    self.revivalDismissHandler = nil;
 
-    static const NSTimeInterval minimumVisibleDuration =
-        2.75;
+    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
+        context.duration = 0.22;
+        self.window.animator.alphaValue = 0.0;
+    } completionHandler:^{
+        [self.window orderOut:nil];
+        self.window.alphaValue = 1.0;
+        self.revivalDismissScheduled = NO;
 
-    static const NSTimeInterval fadeDuration =
-        0.35;
-
-    NSTimeInterval elapsed =
-        [NSDate timeIntervalSinceReferenceDate] -
-        self.revivalShownAt;
-
-    NSTimeInterval remaining =
-        MAX(
-            0.0,
-            minimumVisibleDuration - elapsed);
-
-    dispatch_after(
-        dispatch_time(
-            DISPATCH_TIME_NOW,
-            (int64_t)(remaining * NSEC_PER_SEC)),
-        dispatch_get_main_queue(),
-        ^{
-            [NSAnimationContext
-                runAnimationGroup:
-                ^(NSAnimationContext *context) {
-                    context.duration = fadeDuration;
-
-                    self.window.animator.alphaValue =
-                        0.0;
-                }
-                completionHandler:^{
-                    [self.window orderOut:nil];
-
-                    self.window.alphaValue = 1.0;
-                    self.revivalDismissScheduled = NO;
-                }];
-        });
+        if (dismissHandler != nil) {
+            dismissHandler();
+        }
+    }];
 }
 
 @end
