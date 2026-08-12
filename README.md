@@ -30,6 +30,11 @@ The application now has:
 - first-class Content and Visual Mode settings
 - current Xcode build support and revival validation tooling
 
+![Pfhorge Revival startup splash](docs/revival/screenshots/2026-08-12/01-splash-launch.jpg)
+
+The splash doubles as a compact project identity and contributor screen, keeping
+the revival's lineage visible instead of hiding it behind an About box.
+
 ![Pfhorge Start Center](docs/revival/screenshots/2026-08-12/02-start-center.jpg)
 
 ### Revived Metal Visual Mode
