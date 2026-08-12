@@ -407,6 +407,12 @@ enum {
 -(NSArray<PhLayer*> *)layersInLevel;
 -(NSArray<LEPolygon*> *)namedPolyObjects;
 
+// Legacy mutable accessors are implemented by LELevelData.m and remain in
+// active use by the Objective-C++ preview bridge. Declare them publicly so
+// Clang can type-check those selectors when compiling MyOpenGLView2.mm.
+- (NSMutableArray<LESide *> *)getSides;
+- (NSMutableArray<PhPlatform *> *)getPlatforms;
+
 -(NSArray<LESide*> *)sides;
 -(NSArray<PhLight*> *)lights;
 -(NSArray<PhAnnotationNote*> *)notes;

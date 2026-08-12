@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -48,22 +49,44 @@ def main() -> int:
     settings_text = settings.read_text(encoding="utf-8")
     metal_text = metal.read_text(encoding="utf-8")
 
-    for marker in (
-        "Original game appearance",
-        "Enhanced appearance (optional)",
-        "Install Recommended Enhanced",
-        "PfhorgeActivateContentProfile",
-        "PfhorgeLegacyShapesPathPreference",
-        "sharedTextureRepository",
-        "loadAllTextures",
-        "updateTextureMenuContents",
-        "Marathon2-%@-Data.zip",
-        "MarathonInfinity-%@-Data.zip",
-        "beginRecommendedEnhancedBuildForGame",
-        "selectedEnhancedProfileID",
-        "Enhanced artwork always falls back",
-    ):
-        require(marker in manager_text, f"Content Manager marker missing: {marker}")
+    # CONTENT-1A.2 deliberately replaced the original CONTENT-1A.1 card
+    # labels while preserving the same underlying installation, activation,
+    # Shapes fallback, and reviewed-builder behavior. Accept either UI
+    # generation here so inherited validation checks behavior instead of stale
+    # presentation text.
+    manager_marker_groups = (
+        (
+            "Original game appearance",
+            "Base game data / Shapes — Required",
+        ),
+        (
+            "Enhanced appearance (optional)",
+            "Enhanced texture appearance — Optional",
+        ),
+        (
+            "Install Recommended Enhanced",
+            "Install / Rebuild Recommended…",
+        ),
+        ("PfhorgeActivateContentProfile",),
+        ("PfhorgeLegacyShapesPathPreference",),
+        ("sharedTextureRepository",),
+        ("loadAllTextures",),
+        ("updateTextureMenuContents",),
+        ("Marathon2-%@-Data.zip",),
+        ("MarathonInfinity-%@-Data.zip",),
+        ("beginRecommendedEnhancedBuildForGame",),
+        ("selectedEnhancedProfileID",),
+        (
+            "Enhanced artwork always falls back",
+            "falls back to Shapes",
+        ),
+    )
+    for alternatives in manager_marker_groups:
+        require(
+            any(marker in manager_text for marker in alternatives),
+            "Content Manager marker group missing: "
+            + " or ".join(alternatives),
+        )
 
     require(
         "NSMutableData *bufferStorage = [NSMutableData dataWithLength:64U * 1024U];" in manager_text,
@@ -79,9 +102,95 @@ def main() -> int:
         "PfhorgeVMLookSmoothingPreference",
         "PfhorgeVMVerticalMovementScalePreference",
         "PfhorgeVMNearPlanePreference",
-        "migrationVersion >= 2",
     ):
         require(marker in settings_text, f"settings marker missing: {marker}")
+
+    # Settings migrations may use either:
+    #   * an early-return guard, such as migrationVersion >= currentVersion;
+    #   * an upgrade-path guard, such as migrationVersion < currentVersion;
+    #   * a direct persistent-preference expression; or
+    #   * a named current-version constant.
+    #
+    # Validate the durable behavior rather than one exact source spelling.
+    migration_preference = "PfhorgeVMSettingsMigrationVersionPreference"
+    require(
+        migration_preference in settings_text,
+        "settings migration preference missing",
+    )
+
+    migration_read_present = bool(re.search(
+        r"(?:migrationVersion|"
+        r"persistent\s*\[\s*PfhorgeVMSettingsMigrationVersionPreference\s*\])",
+        settings_text,
+    ))
+    require(
+        migration_read_present,
+        "settings migration version is never read",
+    )
+
+    migration_control_present = bool(re.search(
+        r"\b(?:if|while)\s*\([\s\S]{0,700}?"
+        r"(?:migrationVersion|PfhorgeVMSettingsMigrationVersionPreference)"
+        r"[\s\S]{0,700}?\)"
+        r"|\bswitch\s*\(\s*migrationVersion\s*\)",
+        settings_text,
+    ))
+    require(
+        migration_control_present,
+        "settings migration has no version-dependent control flow",
+    )
+
+    migration_write_matches = re.findall(
+        r"setInteger:\s*([A-Za-z_]\w*|\d+)\s+"
+        r"forKey:\s*PfhorgeVMSettingsMigrationVersionPreference",
+        settings_text,
+    )
+    require(
+        bool(migration_write_matches),
+        "settings migration target is never persisted",
+    )
+
+    migration_version_candidates = []
+
+    # Direct writes: [defaults setInteger:3 forKey:...]
+    for expression in migration_write_matches:
+        if expression.isdigit():
+            migration_version_candidates.append(int(expression))
+            continue
+
+        # Symbolic writes:
+        #   static const NSInteger currentMigrationVersion = 3;
+        #   [defaults setInteger:currentMigrationVersion forKey:...]
+        symbolic_match = re.search(
+            rf"\b{re.escape(expression)}\b\s*=\s*(\d+)",
+            settings_text,
+        )
+        if symbolic_match is not None:
+            migration_version_candidates.append(
+                int(symbolic_match.group(1))
+            )
+
+    # Also accept explicit schema-version constants/macros even when the write
+    # is wrapped in a helper or split across generated Objective-C.
+    for pattern in (
+        r"\b[A-Za-z_]\w*(?:Migration|Settings)\w*Version\w*"
+        r"\s*=\s*(\d+)",
+        r"#define\s+[A-Za-z_]\w*(?:Migration|Settings)\w*Version\w*"
+        r"\s+(\d+)",
+    ):
+        migration_version_candidates.extend(
+            int(version)
+            for version in re.findall(pattern, settings_text)
+        )
+
+    require(
+        any(version >= 2 for version in migration_version_candidates),
+        "settings migration target is older than version 2 or could not be "
+        "resolved; writes="
+        + repr(migration_write_matches)
+        + ", candidates="
+        + repr(migration_version_candidates),
+    )
 
     for marker in (
         "CONTENT-1A.1 independent mouse axes",

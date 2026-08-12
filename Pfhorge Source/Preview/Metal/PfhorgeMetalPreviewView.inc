@@ -9,12 +9,16 @@
 #import <MetalKit/MetalKit.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import <simd/simd.h>
+#import <objc/message.h>
 
 #include "../Core/PreviewSceneBuilder.hpp"
 #include "../Core/PreviewVisibility.hpp"
+#include "../Core/PreviewTexture.hpp"
+#include "../Core/PreviewCollision.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <vector>
 
@@ -24,14 +28,44 @@ using pfhorge::preview::PreviewScene;
 using pfhorge::preview::PreviewSurface;
 using pfhorge::preview::PreviewVertex;
 using pfhorge::preview::SurfaceKind;
+using pfhorge::preview::SurfaceTextureLayer;
 
+enum class ClassicTextureFailure : std::uint8_t {
+    None,
+    InvalidDescriptor,
+    NegativeCache,
+    RepositoryUnavailable,
+    ImageMissing,
+    ImageConversionFailed,
+    UploadFailed,
+};
+
+// TEX-1A classic Shapes texture rendering.
 struct MetalPreviewVertex final {
     simd_float3 position;
     simd_float4 color;
+    simd_float2 textureCoordinate;
 };
 
 struct MetalPreviewUniforms final {
     matrix_float4x4 viewProjection;
+};
+
+struct MetalPreviewFragmentUniforms final {
+    std::uint32_t useTexture;
+    float opacity;
+    std::int32_t transferMode;
+    float padding;
+};
+
+struct MetalPreviewDrawRange final {
+    NSUInteger vertexStart;
+    NSUInteger vertexCount;
+    NSUInteger textureIndex;
+    float opacity;
+    std::int32_t transferMode;
+    bool textured;
+    bool translucent;
 };
 
 [[nodiscard]] matrix_float4x4 MakePerspectiveMatrix(
@@ -106,6 +140,10 @@ struct MetalPreviewUniforms final {
         static_cast<float>((surface.id.owner * 37U) % 11U) /
         100.0F;
 
+    if (surface.textureLayer == SurfaceTextureLayer::Transparent) {
+        return simd_make_float4(0.10F, 0.72F, 0.78F, 0.45F);
+    }
+
     switch (surface.id.kind) {
         case SurfaceKind::Floor:
             return simd_make_float4(
@@ -169,15 +207,24 @@ using namespace metal;
 struct PreviewVertex {
     float3 position;
     float4 color;
+    float2 textureCoordinate;
 };
 
 struct PreviewUniforms {
     float4x4 viewProjection;
 };
 
+struct PreviewFragmentUniforms {
+    uint useTexture;
+    float opacity;
+    int transferMode;
+    float padding;
+};
+
 struct RasterData {
     float4 position [[position]];
     float4 color;
+    float2 textureCoordinate;
 };
 
 vertex RasterData pfhorgePreviewVertex(
@@ -187,18 +234,29 @@ vertex RasterData pfhorgePreviewVertex(
 {
     RasterData output;
     const PreviewVertex input = vertices[vertexID];
-
     output.position =
         uniforms.viewProjection *
         float4(input.position, 1.0);
     output.color = input.color;
+    output.textureCoordinate = input.textureCoordinate;
     return output;
 }
 
 fragment float4 pfhorgePreviewFragment(
-    RasterData input [[stage_in]])
+    RasterData input [[stage_in]],
+    texture2d<float> classicTexture [[texture(0)]],
+    sampler classicSampler [[sampler(0)]],
+    constant PreviewFragmentUniforms& uniforms [[buffer(0)]])
 {
-    return input.color;
+    float4 output = input.color;
+    if (uniforms.useTexture != 0) {
+        output = classicTexture.sample(
+            classicSampler,
+            input.textureCoordinate);
+        output.rgb *= input.color.rgb;
+    }
+    output.a *= uniforms.opacity;
+    return output;
 }
 )MSL"];
 
@@ -233,6 +291,18 @@ fragment float4 pfhorgePreviewFragment(
 - (void)validatePortalCameraPosition;
 - (void)logPortalDiagnostics;
 - (void)applyVisualModeSettings;
+- (void)rebuildSamplerState;
+- (void)clearClassicTextureCache;
+- (id<MTLTexture>)fallbackTexture;
+- (id<MTLTexture>)classicTextureForCollection:(std::int16_t)collection
+                                       bitmap:(std::int16_t)bitmap;
+- (void)contentSelectionDidChange:(NSNotification *)notification;
+- (void)rebuildSceneFromSourcePreservingCamera:(BOOL)preserveCamera
+                                        reason:(NSString *)reason;
+- (void)checkForLiveLevelChangesAtTime:(NSTimeInterval)time;
+- (BOOL)updatePlatformSimulationForDelta:(float)delta;
+- (void)toggleNearestDoor;
+- (void)levelEnvironmentDidChange:(NSNotification *)notification;
 - (void)visualModeSettingsDidChange:(NSNotification *)notification;
 - (void)windowDidBecomeKey:(NSNotification *)notification;
 - (void)windowDidResignKey:(NSNotification *)notification;
@@ -252,7 +322,36 @@ fragment float4 pfhorgePreviewFragment(
     PreviewScene _previewScene;
     pfhorge::preview::PreviewFrame _previewFrame;
     std::vector<MetalPreviewVertex> _metalVertices;
+    std::vector<MetalPreviewDrawRange> _metalDrawRanges;
+    NSMutableDictionary *_classicTextureCache;
+    NSMutableSet *_missingTextureKeys;
+    NSMutableArray *_drawTextures;
+    id<MTLTexture> _fallbackTexture;
+    id<MTLSamplerState> _samplerState;
+    NSUInteger _texturedSurfaceCount;
+    NSUInteger _fallbackSurfaceCount;
+    NSUInteger _invalidTextureDescriptorCount;
+    NSUInteger _negativeTextureCacheHitCount;
+    NSUInteger _textureRepositoryFailureCount;
+    NSUInteger _textureImageMissingCount;
+    NSUInteger _textureImageConversionFailureCount;
+    NSUInteger _textureUploadFailureCount;
+    ClassicTextureFailure _lastClassicTextureFailure;
+    BOOL _attemptedTextureRepositoryReload;
 
+
+    __weak LELevelData *_sourceLevelData;
+    std::uint64_t _sourceLevelFingerprint;
+    NSTimeInterval _lastLiveSyncCheck;
+    std::vector<float> _platformExtensions;
+    std::vector<float> _platformTargets;
+    std::vector<unsigned char> _platformMoving;
+    BOOL _collisionEnabled;
+    BOOL _liveLevelSync;
+    BOOL _followLevelEnvironment;
+    BOOL _sceneRebuildInProgress;
+    NSUInteger _sceneRebuildCount;
+    NSString *_interactionStatus;
     BOOL _portalModeEnabled;
     simd_float3 _portalCameraPosition;
     pfhorge::preview::StableID _portalSeedPolygonID;
@@ -284,6 +383,7 @@ fragment float4 pfhorgePreviewFragment(
     id<MTLCommandQueue> _commandQueue;
     id<MTLRenderPipelineState> _pipelineState;
     id<MTLDepthStencilState> _depthStencilState;
+    id<MTLDepthStencilState> _translucentDepthStencilState;
     id<MTLBuffer> _vertexBuffer;
 
     simd_float3 _cameraTarget;
@@ -325,11 +425,16 @@ fragment float4 pfhorgePreviewFragment(
     self.delegate = self;
 
     _pressedKeys = [NSMutableSet set];
+    _classicTextureCache = [NSMutableDictionary dictionary];
+    _missingTextureKeys = [NSMutableSet set];
+    _drawTextures = [NSMutableArray array];
+    _lastClassicTextureFailure = ClassicTextureFailure::None;
+    _attemptedTextureRepositoryReload = NO;
     _portalMoveSpeed = 1.0F;
     [self applyVisualModeSettings];
 
     _diagnosticsLabel = [[NSTextField alloc]
-        initWithFrame:NSMakeRect(12.0, frameRect.size.height - 70.0, 560.0, 58.0)];
+        initWithFrame:NSMakeRect(12.0, frameRect.size.height - 158.0, 920.0, 146.0)];
     _diagnosticsLabel.editable = NO;
     _diagnosticsLabel.selectable = YES;
     _diagnosticsLabel.bezeled = NO;
@@ -351,10 +456,12 @@ fragment float4 pfhorgePreviewFragment(
         return nil;
     }
 
-    _previewScene =
-        pfhorge::preview::BuildPreviewScene(levelData);
+    _sourceLevelData = levelData;
     _portalModeEnabled = YES;
     _portalMoveSpeed = 1.0F;
+    _interactionStatus = @"Ready";
+    [self rebuildSceneFromSourcePreservingCamera:NO
+                                          reason:@"initial snapshot"];
     [self resetCamera];
 
     NSLog(
@@ -369,6 +476,16 @@ fragment float4 pfhorgePreviewFragment(
         addObserver:self
            selector:@selector(visualModeSettingsDidChange:)
                name:PfhorgeVisualModeSettingsDidChangeNotification
+             object:nil];
+    [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(contentSelectionDidChange:)
+               name:@"PfhorgeContentSelectionDidChangeNotification"
+             object:nil];
+    [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(levelEnvironmentDidChange:)
+               name:PfhorgeLevelEnvironmentDidChangeNotification
              object:nil];
     [[NSNotificationCenter defaultCenter]
         addObserver:self
@@ -422,11 +539,21 @@ fragment float4 pfhorgePreviewFragment(
     MTLRenderPipelineDescriptor *pipelineDescriptor =
         [[MTLRenderPipelineDescriptor alloc] init];
     pipelineDescriptor.label =
-        @"Pfhorge VM-3 Untextured Geometry";
+        @"Pfhorge TEX-1A Classic Shapes Geometry";
     pipelineDescriptor.vertexFunction = vertexFunction;
     pipelineDescriptor.fragmentFunction = fragmentFunction;
-    pipelineDescriptor.colorAttachments[0].pixelFormat =
-        self.colorPixelFormat;
+    MTLRenderPipelineColorAttachmentDescriptor *colorAttachment =
+        pipelineDescriptor.colorAttachments[0];
+    colorAttachment.pixelFormat = self.colorPixelFormat;
+    colorAttachment.blendingEnabled = YES;
+    colorAttachment.rgbBlendOperation = MTLBlendOperationAdd;
+    colorAttachment.alphaBlendOperation = MTLBlendOperationAdd;
+    colorAttachment.sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+    colorAttachment.destinationRGBBlendFactor =
+        MTLBlendFactorOneMinusSourceAlpha;
+    colorAttachment.sourceAlphaBlendFactor = MTLBlendFactorOne;
+    colorAttachment.destinationAlphaBlendFactor =
+        MTLBlendFactorOneMinusSourceAlpha;
     pipelineDescriptor.depthAttachmentPixelFormat =
         self.depthStencilPixelFormat;
     pipelineDescriptor.rasterSampleCount = self.sampleCount;
@@ -454,8 +581,13 @@ fragment float4 pfhorgePreviewFragment(
     _depthStencilState =
         [device newDepthStencilStateWithDescriptor:
                     depthDescriptor];
+    depthDescriptor.depthWriteEnabled = NO;
+    _translucentDepthStencilState =
+        [device newDepthStencilStateWithDescriptor:
+                    depthDescriptor];
 
-    return _depthStencilState != nil;
+    return _depthStencilState != nil &&
+           _translucentDepthStencilState != nil;
 }
 
 
@@ -464,6 +596,13 @@ fragment float4 pfhorgePreviewFragment(
 {
     PfhorgeRegisterVisualModeDefaults();
     NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+
+    _collisionEnabled =
+        [defaults boolForKey:PfhorgeVMCollisionModePreference];
+    _liveLevelSync =
+        [defaults boolForKey:PfhorgeVMLiveLevelSyncPreference];
+    _followLevelEnvironment =
+        [defaults boolForKey:PfhorgeVMFollowLevelEnvironmentPreference];
 
     _movementSpeed = std::clamp(
         static_cast<float>([defaults doubleForKey:PfhorgeVMMovementSpeedPreference]),
@@ -531,16 +670,226 @@ fragment float4 pfhorgePreviewFragment(
         _diagnosticsLabel.hidden =
             ![defaults boolForKey:PfhorgeVMDiagnosticsOverlayPreference];
     }
+    [self rebuildSamplerState];
+}
+
+- (void)rebuildSamplerState
+{
+    MTLSamplerDescriptor *descriptor =
+        [[MTLSamplerDescriptor alloc] init];
+    descriptor.label = @"Pfhorge TEX-1A Classic Shapes Sampler";
+    descriptor.sAddressMode = MTLSamplerAddressModeRepeat;
+    descriptor.tAddressMode = MTLSamplerAddressModeRepeat;
+    descriptor.rAddressMode = MTLSamplerAddressModeRepeat;
+
+    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+    const NSInteger filtering =
+        [defaults integerForKey:PfhorgeVMTextureFilteringPreference];
+    const NSInteger requestedAnisotropy = std::clamp<NSInteger>(
+        [defaults integerForKey:PfhorgeVMAnisotropyPreference],
+        1,
+        16);
+
+    if (filtering <= 0) {
+        descriptor.minFilter = MTLSamplerMinMagFilterNearest;
+        descriptor.magFilter = MTLSamplerMinMagFilterNearest;
+        descriptor.mipFilter = MTLSamplerMipFilterNotMipmapped;
+        descriptor.maxAnisotropy = 1U;
+    } else {
+        descriptor.minFilter = MTLSamplerMinMagFilterLinear;
+        descriptor.magFilter = MTLSamplerMinMagFilterLinear;
+        descriptor.mipFilter = filtering >= 2
+            ? MTLSamplerMipFilterLinear
+            : MTLSamplerMipFilterNotMipmapped;
+        descriptor.maxAnisotropy =
+            static_cast<NSUInteger>(requestedAnisotropy);
+    }
+
+    _samplerState =
+        [self.device newSamplerStateWithDescriptor:descriptor];
+}
+
+- (void)clearClassicTextureCache
+{
+    [_classicTextureCache removeAllObjects];
+    [_missingTextureKeys removeAllObjects];
+    _lastClassicTextureFailure = ClassicTextureFailure::None;
+    _attemptedTextureRepositoryReload = NO;
+}
+
+- (id<MTLTexture>)fallbackTexture
+{
+    if (_fallbackTexture != nil) {
+        return _fallbackTexture;
+    }
+
+    MTLTextureDescriptor *descriptor =
+        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:
+            MTLPixelFormatRGBA8Unorm_sRGB
+                                                     width:1U
+                                                    height:1U
+                                                 mipmapped:NO];
+    descriptor.usage = MTLTextureUsageShaderRead;
+    descriptor.storageMode = MTLStorageModeShared;
+    _fallbackTexture = [self.device newTextureWithDescriptor:descriptor];
+    _fallbackTexture.label = @"Pfhorge TEX-1A White Fallback";
+    const std::uint8_t pixel[4] = {255U, 255U, 255U, 255U};
+    [_fallbackTexture replaceRegion:MTLRegionMake2D(0U, 0U, 1U, 1U)
+                        mipmapLevel:0U
+                          withBytes:pixel
+                        bytesPerRow:sizeof(pixel)];
+    return _fallbackTexture;
+}
+
+- (id<MTLTexture>)classicTextureForCollection:(std::int16_t)collection
+                                       bitmap:(std::int16_t)bitmap
+{
+    _lastClassicTextureFailure = ClassicTextureFailure::None;
+    const pfhorge::preview::PreviewTextureKey key{
+        pfhorge::preview::NormalizeClassicCollection(collection),
+        bitmap,
+    };
+    if (!key.valid() ||
+        !pfhorge::preview::IsClassicTextureCollection(key.collection)) {
+        _lastClassicTextureFailure =
+            ClassicTextureFailure::InvalidDescriptor;
+        return nil;
+    }
+
+    NSNumber *cacheKey = @(key.packed());
+    id<MTLTexture> cached = _classicTextureCache[cacheKey];
+    if (cached != nil) {
+        return cached;
+    }
+    if ([_missingTextureKeys containsObject:cacheKey]) {
+        _lastClassicTextureFailure =
+            ClassicTextureFailure::NegativeCache;
+        return nil;
+    }
+
+    Class repositoryClass = NSClassFromString(@"TextureRepository");
+    if (repositoryClass == Nil) {
+        repositoryClass = NSClassFromString(@"Pfhorge.TextureRepository");
+    }
+    SEL sharedSelector = NSSelectorFromString(@"sharedTextureRepository");
+    SEL textureSelector =
+        NSSelectorFromString(@"textureForCollection:bitmap:");
+    if (repositoryClass == Nil ||
+        ![repositoryClass respondsToSelector:sharedSelector]) {
+        _lastClassicTextureFailure =
+            ClassicTextureFailure::RepositoryUnavailable;
+        [_missingTextureKeys addObject:cacheKey];
+        return nil;
+    }
+
+    typedef id (*PfhorgeNoArgumentObjectMessage)(id, SEL);
+    typedef id (*PfhorgeTwoIntegerObjectMessage)(
+        id,
+        SEL,
+        std::int32_t,
+        std::int32_t);
+    typedef void (*PfhorgeVoidNoArgumentMessage)(id, SEL);
+
+    id repository =
+        ((PfhorgeNoArgumentObjectMessage)objc_msgSend)(
+            (id)repositoryClass,
+            sharedSelector);
+    if (repository == nil ||
+        ![repository respondsToSelector:textureSelector]) {
+        _lastClassicTextureFailure =
+            ClassicTextureFailure::RepositoryUnavailable;
+        [_missingTextureKeys addObject:cacheKey];
+        return nil;
+    }
+
+    NSImage *image =
+        ((PfhorgeTwoIntegerObjectMessage)objc_msgSend)(
+            repository,
+            textureSelector,
+            static_cast<std::int32_t>(key.collection),
+            static_cast<std::int32_t>(key.bitmap));
+
+    if (image == nil && !_attemptedTextureRepositoryReload) {
+        _attemptedTextureRepositoryReload = YES;
+        SEL reloadSelector = NSSelectorFromString(@"reloadClassicTextures");
+        if ([repository respondsToSelector:reloadSelector]) {
+            ((PfhorgeVoidNoArgumentMessage)objc_msgSend)(
+                repository,
+                reloadSelector);
+            image =
+                ((PfhorgeTwoIntegerObjectMessage)objc_msgSend)(
+                    repository,
+                    textureSelector,
+                    static_cast<std::int32_t>(key.collection),
+                    static_cast<std::int32_t>(key.bitmap));
+        }
+    }
+
+    if (image == nil) {
+        _lastClassicTextureFailure = ClassicTextureFailure::ImageMissing;
+        [_missingTextureKeys addObject:cacheKey];
+        return nil;
+    }
+
+    NSRect proposedRect = NSZeroRect;
+    CGImageRef imageReference =
+        [image CGImageForProposedRect:&proposedRect
+                              context:nil
+                                hints:nil];
+    if (imageReference == nil) {
+        _lastClassicTextureFailure =
+            ClassicTextureFailure::ImageConversionFailed;
+        [_missingTextureKeys addObject:cacheKey];
+        return nil;
+    }
+
+    NSError *textureError = nil;
+    MTKTextureLoader *loader =
+        [[MTKTextureLoader alloc] initWithDevice:self.device];
+    NSDictionary *options = @{
+        MTKTextureLoaderOptionSRGB: @YES,
+        MTKTextureLoaderOptionGenerateMipmaps: @YES,
+        MTKTextureLoaderOptionOrigin: MTKTextureLoaderOriginTopLeft,
+    };
+    id<MTLTexture> texture =
+        [loader newTextureWithCGImage:imageReference
+                              options:options
+                                error:&textureError];
+    if (texture == nil) {
+        _lastClassicTextureFailure = ClassicTextureFailure::UploadFailed;
+        NSLog(
+            @"TEX-1A.2 could not upload collection %d bitmap %d: %@",
+            key.collection,
+            key.bitmap,
+            textureError);
+        [_missingTextureKeys addObject:cacheKey];
+        return nil;
+    }
+
+    texture.label = [NSString stringWithFormat:
+        @"Classic Shapes c%d b%d",
+        key.collection,
+        key.bitmap];
+    _classicTextureCache[cacheKey] = texture;
+    return texture;
+}
+
+- (void)contentSelectionDidChange:(NSNotification *)notification
+{
+    (void)notification;
+    [self clearClassicTextureCache];
+    _interactionStatus = @"Active Shapes content reloaded";
+    [self rebuildSceneFromSourcePreservingCamera:YES
+                                          reason:@"content selection"];
 }
 
 - (void)visualModeSettingsDidChange:(NSNotification *)notification
 {
     (void)notification;
+    [self clearClassicTextureCache];
     [self applyVisualModeSettings];
-    if (_portalModeEnabled) {
-        [self rebuildPreviewFrame];
-        [self rebuildVertexBuffer];
-    }
+    [self rebuildSceneFromSourcePreservingCamera:YES
+                                          reason:@"Visual Mode settings"];
 }
 
 - (void)windowDidBecomeKey:(NSNotification *)notification
@@ -601,11 +950,19 @@ fragment float4 pfhorgePreviewFragment(
     if (_lastFrameTimestamp <= 0.0) {
         _lastFrameTimestamp = now;
         _lastFrameDelta = 1.0 / 60.0;
+        [self checkForLiveLevelChangesAtTime:now];
         return;
     }
 
-    _lastFrameDelta = std::clamp(now - _lastFrameTimestamp, 0.0, 0.10);
+    _lastFrameDelta = std::clamp(
+        now - _lastFrameTimestamp,
+        0.0,
+        0.10);
     _lastFrameTimestamp = now;
+    [self checkForLiveLevelChangesAtTime:now];
+    [self updatePlatformSimulationForDelta:
+        static_cast<float>(_lastFrameDelta)];
+
     if (_pressedKeys.count == 0 || _lastFrameDelta <= 0.0) {
         return;
     }
@@ -621,46 +978,78 @@ fragment float4 pfhorgePreviewFragment(
         -forward.z,
         0.0F,
         forward.x);
-
     const float step =
         _movementSpeed * _portalMoveSpeed *
         static_cast<float>(_lastFrameDelta);
-    BOOL moved = NO;
 
-    simd_float3 *position = _portalModeEnabled
-        ? &_portalCameraPosition
-        : &_cameraTarget;
-
-    if ([self pressedPreference:PfhorgeVMForwardKeyPreference fallback:'w']) {
-        *position += forward * step;
-        moved = YES;
+    simd_float3 movement = simd_make_float3(0.0F, 0.0F, 0.0F);
+    if ([self pressedPreference:PfhorgeVMForwardKeyPreference
+                       fallback:'w']) {
+        movement += forward * step;
     }
-    if ([self pressedPreference:PfhorgeVMBackwardKeyPreference fallback:'s']) {
-        *position -= forward * step;
-        moved = YES;
+    if ([self pressedPreference:PfhorgeVMBackwardKeyPreference
+                       fallback:'s']) {
+        movement -= forward * step;
     }
-    if ([self pressedPreference:PfhorgeVMStrafeLeftKeyPreference fallback:'a']) {
-        *position -= right * step;
-        moved = YES;
+    if ([self pressedPreference:PfhorgeVMStrafeLeftKeyPreference
+                       fallback:'a']) {
+        movement -= right * step;
     }
-    if ([self pressedPreference:PfhorgeVMStrafeRightKeyPreference fallback:'d']) {
-        *position += right * step;
-        moved = YES;
+    if ([self pressedPreference:PfhorgeVMStrafeRightKeyPreference
+                       fallback:'d']) {
+        movement += right * step;
     }
-    if ([self pressedPreference:PfhorgeVMFlyDownKeyPreference fallback:'q']) {
-        position->y -= step * _verticalMovementScale;
-        moved = YES;
+    if ([self pressedPreference:PfhorgeVMFlyDownKeyPreference
+                       fallback:'q']) {
+        movement.y -= step * _verticalMovementScale;
     }
-    if ([self pressedPreference:PfhorgeVMFlyUpKeyPreference fallback:'e']) {
-        position->y += step * _verticalMovementScale;
-        moved = YES;
+    if ([self pressedPreference:PfhorgeVMFlyUpKeyPreference
+                       fallback:'e']) {
+        movement.y += step * _verticalMovementScale;
     }
 
-    if (moved && _portalModeEnabled) {
+    if (simd_length_squared(movement) <= 0.0000001F) {
+        return;
+    }
+
+    if (!_portalModeEnabled) {
+        _cameraTarget += movement;
+        return;
+    }
+
+    if (_collisionEnabled) {
+        const pfhorge::preview::PreviewMovementResult result =
+            pfhorge::preview::MovePreviewCameraWithCollision(
+                _previewScene,
+                _portalSeedPolygonID,
+                pfhorge::preview::Vec3{
+                    _portalCameraPosition.x,
+                    _portalCameraPosition.y,
+                    _portalCameraPosition.z,
+                },
+                pfhorge::preview::Vec3{
+                    movement.x,
+                    movement.y,
+                    movement.z,
+                });
+        _portalCameraPosition = simd_make_float3(
+            result.position.x,
+            result.position.y,
+            result.position.z);
+        if (result.polygonID !=
+            pfhorge::preview::kInvalidPreviewID) {
+            _portalSeedPolygonID = result.polygonID;
+        }
+        if (result.collided) {
+            _interactionStatus = @"Collision: solid wall or closed door";
+        }
+    } else {
+        _portalCameraPosition += movement;
         [self validatePortalCameraPosition];
-        [self rebuildPreviewFrame];
-        [self rebuildVertexBuffer];
     }
+
+    [self rebuildPreviewFrame];
+    [self rebuildVertexBuffer];
 }
 
 - (void)updateDiagnosticsOverlay
@@ -679,10 +1068,28 @@ fragment float4 pfhorgePreviewFragment(
                        (instantaneousFPS * 0.10);
     }
 
+    std::size_t doorCount = 0U;
+    for (const pfhorge::preview::PreviewPlatform& platform :
+         _previewScene.platforms) {
+        if (platform.isDoor) {
+            ++doorCount;
+        }
+    }
+    const std::size_t movingCount = static_cast<std::size_t>(
+        std::count_if(
+            _platformMoving.begin(),
+            _platformMoving.end(),
+            [](unsigned char value) { return value != 0U; }));
+
     _diagnosticsLabel.stringValue = [NSString stringWithFormat:
-        @"%.1f FPS | camera=(%.2f, %.2f, %.2f) | seed=%u\n"
-         "visible=%zu polygons / %zu surfaces | portals=%u accepted | vertices=%zu",
+        @"%.1f FPS (%.2f ms) | camera=(%.2f, %.2f, %.2f) | seed=%u\n"
+         "visible=%zu polygons / %zu surfaces | portals=%u | vertices=%zu\n"
+         "textured=%zu fallback=%zu cache=%lu | wallTex=%u/%u sideGaps=%u transparent=%u\n"
+         "sideResolve cw=%u cc=%u direct=%u back=%u scan=%u miss=%u rejected=%u\n"
+         "lookup invalid=%zu negCache=%zu repository=%zu image=%zu conversion=%zu upload=%zu\n"
+         "collision=%@ liveSync=%@ rebuilds=%lu | doors=%zu moving=%zu | %@",
         _smoothedFPS,
+        _lastFrameDelta * 1000.0,
         _portalCameraPosition.x,
         _portalCameraPosition.y,
         _portalCameraPosition.z,
@@ -690,7 +1097,33 @@ fragment float4 pfhorgePreviewFragment(
         _portalDiagnostics.visiblePolygonCount,
         _portalDiagnostics.visibleSurfaceCount,
         _portalDiagnostics.portalsAccepted,
-        _metalVertices.size()];
+        _metalVertices.size(),
+        static_cast<std::size_t>(_texturedSurfaceCount),
+        static_cast<std::size_t>(_fallbackSurfaceCount),
+        (unsigned long)_classicTextureCache.count,
+        _previewScene.textureAudit.wallSegmentsWithTexture,
+        _previewScene.textureAudit.wallSegments,
+        _previewScene.textureAudit.wallSegmentsWithoutSide,
+        _previewScene.textureAudit.transparentWallSegments,
+        _previewScene.textureAudit.sidesResolvedClockwise,
+        _previewScene.textureAudit.sidesResolvedCounterclockwise,
+        _previewScene.textureAudit.sidesResolvedDirect,
+        _previewScene.textureAudit.sidesResolvedBackReference,
+        _previewScene.textureAudit.sidesResolvedScan,
+        _previewScene.textureAudit.sideResolutionMisses,
+        _previewScene.textureAudit.rejectedStalePolygonSides,
+        static_cast<std::size_t>(_invalidTextureDescriptorCount),
+        static_cast<std::size_t>(_negativeTextureCacheHitCount),
+        static_cast<std::size_t>(_textureRepositoryFailureCount),
+        static_cast<std::size_t>(_textureImageMissingCount),
+        static_cast<std::size_t>(_textureImageConversionFailureCount),
+        static_cast<std::size_t>(_textureUploadFailureCount),
+        _collisionEnabled ? @"on" : @"off",
+        _liveLevelSync ? @"on" : @"off",
+        (unsigned long)_sceneRebuildCount,
+        doorCount,
+        movingCount,
+        _interactionStatus ?: @"Ready"];
 }
 
 - (simd_float3)portalForwardVector
@@ -769,6 +1202,270 @@ fragment float4 pfhorgePreviewFragment(
     }
 }
 
+// VM-4A collision, doors, live level sync, and texture audit.
+- (void)rebuildSceneFromSourcePreservingCamera:(BOOL)preserveCamera
+                                        reason:(NSString *)reason
+{
+    if (_sourceLevelData == nil || _sceneRebuildInProgress) {
+        return;
+    }
+
+    _sceneRebuildInProgress = YES;
+    const NSUInteger platformCount =
+        [[_sourceLevelData getPlatforms] count];
+    const float notInitialized =
+        std::numeric_limits<float>::quiet_NaN();
+
+    _platformExtensions.resize(platformCount, notInitialized);
+    _platformTargets.resize(platformCount, notInitialized);
+    _platformMoving.resize(platformCount, 0U);
+
+    pfhorge::preview::PreviewSceneBuildOptions options;
+    options.followLevelEnvironment = _followLevelEnvironment;
+    options.platformExtensions = _platformExtensions;
+
+    PreviewScene nextScene =
+        pfhorge::preview::BuildPreviewScene(_sourceLevelData, options);
+    BOOL initializedPlatformState = NO;
+    for (const pfhorge::preview::PreviewPlatform& platform :
+         nextScene.platforms) {
+        const NSUInteger identifier =
+            static_cast<NSUInteger>(platform.id);
+        if (identifier >= _platformExtensions.size()) {
+            continue;
+        }
+        if (!std::isfinite(_platformExtensions[identifier])) {
+            _platformExtensions[identifier] =
+                platform.initialExtension;
+            initializedPlatformState = YES;
+        }
+        if (!std::isfinite(_platformTargets[identifier])) {
+            _platformTargets[identifier] =
+                _platformExtensions[identifier];
+        }
+    }
+
+    if (initializedPlatformState) {
+        options.platformExtensions = _platformExtensions;
+        nextScene =
+            pfhorge::preview::BuildPreviewScene(_sourceLevelData, options);
+    }
+
+    _previewScene = std::move(nextScene);
+    _sourceLevelFingerprint =
+        pfhorge::preview::ComputePreviewLevelFingerprint(
+            _sourceLevelData);
+    ++_sceneRebuildCount;
+
+    if (preserveCamera && _portalModeEnabled) {
+        const pfhorge::preview::Vec3 currentPosition{
+            _portalCameraPosition.x,
+            _portalCameraPosition.y,
+            _portalCameraPosition.z,
+        };
+        std::optional<pfhorge::preview::StableID> containing;
+        if (_portalSeedPolygonID !=
+                pfhorge::preview::kInvalidPreviewID &&
+            pfhorge::preview::PolygonContainsPoint3D(
+                _previewScene,
+                _portalSeedPolygonID,
+                currentPosition)) {
+            containing = _portalSeedPolygonID;
+        } else {
+            containing = pfhorge::preview::FindContainingPolygon(
+                _previewScene,
+                currentPosition);
+        }
+        if (containing.has_value()) {
+            _portalSeedPolygonID = *containing;
+            [self validatePortalCameraPosition];
+        } else {
+            [self positionPortalCameraAtPreferredStart];
+        }
+        [self rebuildPreviewFrame];
+    } else {
+        _previewFrame =
+            pfhorge::preview::BuildWholeScenePreviewFrame(
+                _previewScene);
+    }
+    [self rebuildVertexBuffer];
+    _sceneRebuildInProgress = NO;
+
+    NSLog(
+        @"TEX-1A.2 scene rebuild #%lu (%@): polygons=%zu surfaces=%zu "
+         "platforms=%zu wallTextures=%u/%u sideGaps=%u transparent=%u "
+         "sideResolve[cw=%u cc=%u direct=%u back=%u scan=%u miss=%u rejected=%u]",
+        (unsigned long)_sceneRebuildCount,
+        reason ?: @"unspecified",
+        _previewScene.polygons.size(),
+        _previewScene.surfaces.size(),
+        _previewScene.platforms.size(),
+        _previewScene.textureAudit.wallSegmentsWithTexture,
+        _previewScene.textureAudit.wallSegments,
+        _previewScene.textureAudit.wallSegmentsWithoutSide,
+        _previewScene.textureAudit.transparentWallSegments,
+        _previewScene.textureAudit.sidesResolvedClockwise,
+        _previewScene.textureAudit.sidesResolvedCounterclockwise,
+        _previewScene.textureAudit.sidesResolvedDirect,
+        _previewScene.textureAudit.sidesResolvedBackReference,
+        _previewScene.textureAudit.sidesResolvedScan,
+        _previewScene.textureAudit.sideResolutionMisses,
+        _previewScene.textureAudit.rejectedStalePolygonSides);
+}
+
+- (void)checkForLiveLevelChangesAtTime:(NSTimeInterval)time
+{
+    if (!_liveLevelSync || _sourceLevelData == nil ||
+        time - _lastLiveSyncCheck < 0.20) {
+        return;
+    }
+    _lastLiveSyncCheck = time;
+    const std::uint64_t fingerprint =
+        pfhorge::preview::ComputePreviewLevelFingerprint(
+            _sourceLevelData);
+    if (fingerprint == _sourceLevelFingerprint) {
+        return;
+    }
+
+    // A source edit can change the platform count or initial state. Reset only
+    // the temporary simulation state; no editable map object is mutated.
+    _platformExtensions.clear();
+    _platformTargets.clear();
+    _platformMoving.clear();
+    _interactionStatus = @"Live map change applied";
+    [self rebuildSceneFromSourcePreservingCamera:YES
+                                          reason:@"live map edit"];
+}
+
+- (BOOL)updatePlatformSimulationForDelta:(float)delta
+{
+    if (delta <= 0.0F || _previewScene.platforms.empty()) {
+        return NO;
+    }
+
+    BOOL changed = NO;
+    for (const pfhorge::preview::PreviewPlatform& platform :
+         _previewScene.platforms) {
+        const NSUInteger identifier =
+            static_cast<NSUInteger>(platform.id);
+        if (identifier >= _platformExtensions.size() ||
+            identifier >= _platformTargets.size() ||
+            identifier >= _platformMoving.size() ||
+            _platformMoving[identifier] == 0U) {
+            continue;
+        }
+
+        float& current = _platformExtensions[identifier];
+        const float target = _platformTargets[identifier];
+
+        // Do not close a door around the first-person camera. This is a small
+        // editor-safety rule, not a complete Marathon obstruction simulation.
+        if (target > current && platform.isDoor &&
+            platform.polygonID == _portalSeedPolygonID) {
+            _platformMoving[identifier] = 0U;
+            _platformTargets[identifier] = current;
+            _interactionStatus = @"Door held open while camera is inside";
+            continue;
+        }
+
+        const float travel = std::max(
+            0.05F,
+            platform.maximumHeight - platform.minimumHeight);
+        const float step = std::max(
+            0.01F,
+            platform.speedWorldUnitsPerSecond / travel) * delta;
+        if (current < target) {
+            current = std::min(target, current + step);
+        } else {
+            current = std::max(target, current - step);
+        }
+        changed = YES;
+        if (std::fabs(current - target) <= 0.0001F) {
+            current = target;
+            _platformMoving[identifier] = 0U;
+            _interactionStatus = target < 0.5F
+                ? @"Door opened"
+                : @"Door closed";
+        }
+    }
+
+    if (changed) {
+        [self rebuildSceneFromSourcePreservingCamera:YES
+                                              reason:@"platform animation"];
+    }
+    return changed;
+}
+
+- (void)toggleNearestDoor
+{
+    const simd_float3 portalForward = [self portalForwardVector];
+    const std::optional<pfhorge::preview::StableID> selected =
+        pfhorge::preview::FindPreviewDoorForInteraction(
+            _previewScene,
+            _portalSeedPolygonID,
+            pfhorge::preview::Vec3{
+                _portalCameraPosition.x,
+                _portalCameraPosition.y,
+                _portalCameraPosition.z,
+            },
+            pfhorge::preview::Vec3{
+                portalForward.x,
+                portalForward.y,
+                portalForward.z,
+            });
+    if (!selected.has_value()) {
+        _interactionStatus = @"No usable door in reach";
+        NSBeep();
+        return;
+    }
+
+    const auto iterator = std::find_if(
+        _previewScene.platforms.begin(),
+        _previewScene.platforms.end(),
+        [selected](const pfhorge::preview::PreviewPlatform& platform) {
+            return platform.id == *selected;
+        });
+    if (iterator == _previewScene.platforms.end()) {
+        _interactionStatus = @"Door definition unavailable";
+        NSBeep();
+        return;
+    }
+    if (iterator->locked) {
+        _interactionStatus = @"Door is locked";
+        NSBeep();
+        return;
+    }
+
+    const NSUInteger identifier =
+        static_cast<NSUInteger>(iterator->id);
+    if (identifier >= _platformExtensions.size()) {
+        return;
+    }
+    const float current = _platformExtensions[identifier];
+    float target = current > 0.5F ? 0.0F : 1.0F;
+    if (identifier < _platformMoving.size() &&
+        _platformMoving[identifier] != 0U) {
+        target = _platformTargets[identifier] > current ? 0.0F : 1.0F;
+    }
+    _platformTargets[identifier] = target;
+    _platformMoving[identifier] = 1U;
+    _interactionStatus = target < 0.5F
+        ? @"Opening door"
+        : @"Closing door";
+}
+
+- (void)levelEnvironmentDidChange:(NSNotification *)notification
+{
+    if (notification.object != nil &&
+        notification.object != _sourceLevelData) {
+        return;
+    }
+    [self clearClassicTextureCache];
+    _interactionStatus = @"Level environment synchronized";
+    [self rebuildSceneFromSourcePreservingCamera:YES
+                                          reason:@"level environment"];
+}
+
 - (void)positionPortalCameraAtPreferredStart
 {
     _portalSeedPolygonID = pfhorge::preview::kInvalidPreviewID;
@@ -840,28 +1537,28 @@ fragment float4 pfhorgePreviewFragment(
             _previewScene,
             position);
     }
-
     if (!containing.has_value()) {
         return;
     }
 
     _portalSeedPolygonID = *containing;
-    const pfhorge::preview::StableID seedPolygonID =
-        _portalSeedPolygonID;
-    const auto iterator = std::find_if(
-        _previewScene.polygons.begin(),
-        _previewScene.polygons.end(),
-        [seedPolygonID](const pfhorge::preview::PreviewPolygon& polygon) {
-            return polygon.id == seedPolygonID;
-        });
-    if (iterator == _previewScene.polygons.end()) {
+    const pfhorge::preview::PreviewPolygon *polygon =
+        pfhorge::preview::FindPreviewPolygon(
+            _previewScene,
+            _portalSeedPolygonID);
+    if (polygon == nullptr) {
+        return;
+    }
+    if (polygon->ceilingHeight - polygon->floorHeight <= 0.10F) {
+        [self positionPortalCameraAtPreferredStart];
+        _interactionStatus = @"Camera moved out of a closed platform";
         return;
     }
 
     _portalCameraPosition.y = std::clamp(
         _portalCameraPosition.y,
-        iterator->floorHeight + 0.05F,
-        iterator->ceilingHeight - 0.05F);
+        polygon->floorHeight + 0.05F,
+        polygon->ceilingHeight - 0.05F);
 }
 
 - (void)logPortalDiagnostics
@@ -890,33 +1587,95 @@ fragment float4 pfhorgePreviewFragment(
 - (void)rebuildVertexBuffer
 {
     _metalVertices.clear();
+    _metalDrawRanges.clear();
+    [_drawTextures removeAllObjects];
+    _texturedSurfaceCount = 0U;
+    _fallbackSurfaceCount = 0U;
+    _invalidTextureDescriptorCount = 0U;
+    _negativeTextureCacheHitCount = 0U;
+    _textureRepositoryFailureCount = 0U;
+    _textureImageMissingCount = 0U;
+    _textureImageConversionFailureCount = 0U;
+    _textureUploadFailureCount = 0U;
 
-    const std::vector<PreviewSurface>& surfaces =
-        (_portalModeEnabled &&
-         _previewFrame.cameraInsideScene)
-            ? _previewFrame.visibleSurfaces
-            : _previewScene.surfaces;
+    // DIAGNOSTIC ONLY:
+// Render every scene surface while keeping the first-person camera.
+// This isolates portal visibility filtering from texture rendering.
+const std::vector<PreviewSurface>& surfaces =
+    _previewScene.surfaces;
 
     std::size_t indexCount = 0U;
-
     for (const PreviewSurface& surface : surfaces) {
         indexCount += surface.indices.size();
     }
-
     _metalVertices.reserve(indexCount);
+    _metalDrawRanges.reserve(surfaces.size());
+
+    const BOOL forceUntextured =
+        [[NSUserDefaults standardUserDefaults]
+            boolForKey:PfhorgeVMUntexturedDiagnosticPreference];
 
     for (const PreviewSurface& surface : surfaces) {
-        const simd_float4 color =
-            ColorForSurface(surface);
+        const pfhorge::preview::PreviewTextureKey key =
+            pfhorge::preview::ClassicTextureKeyFor(surface);
+        id<MTLTexture> texture = nil;
+        BOOL useTexture = NO;
+        if (!forceUntextured) {
+            if (!key.valid()) {
+                ++_invalidTextureDescriptorCount;
+            } else {
+                texture = [self classicTextureForCollection:key.collection
+                                                     bitmap:key.bitmap];
+                useTexture = texture != nil;
+                if (!useTexture) {
+                    switch (_lastClassicTextureFailure) {
+                        case ClassicTextureFailure::InvalidDescriptor:
+                            ++_invalidTextureDescriptorCount;
+                            break;
+                        case ClassicTextureFailure::NegativeCache:
+                            ++_negativeTextureCacheHitCount;
+                            break;
+                        case ClassicTextureFailure::RepositoryUnavailable:
+                            ++_textureRepositoryFailureCount;
+                            break;
+                        case ClassicTextureFailure::ImageMissing:
+                            ++_textureImageMissingCount;
+                            break;
+                        case ClassicTextureFailure::ImageConversionFailed:
+                            ++_textureImageConversionFailureCount;
+                            break;
+                        case ClassicTextureFailure::UploadFailed:
+                            ++_textureUploadFailureCount;
+                            break;
+                        case ClassicTextureFailure::None:
+                            break;
+                    }
+                }
+            }
+        }
+        if (texture == nil) {
+            texture = [self fallbackTexture];
+        }
 
-        for (const std::uint32_t index :
-             surface.indices) {
+        const NSUInteger vertexStart = _metalVertices.size();
+        const simd_float4 fallbackColor = ColorForSurface(surface);
+        for (const std::uint32_t index : surface.indices) {
             if (index >= surface.vertices.size()) {
                 continue;
             }
 
-            const PreviewVertex& vertex =
-                surface.vertices[index];
+            const PreviewVertex& vertex = surface.vertices[index];
+            const float brightness = std::clamp(
+                vertex.light,
+                0.0F,
+                1.0F);
+            const simd_float4 color = useTexture
+                ? simd_make_float4(
+                    brightness,
+                    brightness,
+                    brightness,
+                    1.0F)
+                : fallbackColor;
 
             _metalVertices.push_back(MetalPreviewVertex{
                 simd_make_float3(
@@ -924,7 +1683,37 @@ fragment float4 pfhorgePreviewFragment(
                     vertex.position.y,
                     vertex.position.z),
                 color,
+                simd_make_float2(
+                    vertex.textureCoordinate.x,
+                    vertex.textureCoordinate.y),
             });
+        }
+
+        const NSUInteger vertexCount =
+            _metalVertices.size() - vertexStart;
+        if (vertexCount == 0U) {
+            continue;
+        }
+
+        const NSUInteger textureIndex = _drawTextures.count;
+        [_drawTextures addObject:texture];
+        _metalDrawRanges.push_back(MetalPreviewDrawRange{
+            vertexStart,
+            vertexCount,
+            textureIndex,
+            useTexture
+                ? pfhorge::preview::ClassicSurfaceOpacity(surface)
+                : 1.0F,
+            static_cast<std::int32_t>(
+                surface.texture.transferMode),
+            useTexture,
+            surface.translucent,
+        });
+
+        if (useTexture) {
+            ++_texturedSurfaceCount;
+        } else {
+            ++_fallbackSurfaceCount;
         }
     }
 
@@ -934,15 +1723,11 @@ fragment float4 pfhorgePreviewFragment(
     }
 
     _vertexBuffer =
-        [self.device newBufferWithBytes:
-                         _metalVertices.data()
-                                 length:
-                         _metalVertices.size() *
-                         sizeof(MetalPreviewVertex)
-                                options:
-                         MTLResourceStorageModeShared];
-    _vertexBuffer.label =
-        @"Pfhorge VM-3 Portal Geometry";
+        [self.device newBufferWithBytes:_metalVertices.data()
+                                 length:_metalVertices.size() *
+                                        sizeof(MetalPreviewVertex)
+                                options:MTLResourceStorageModeShared];
+    _vertexBuffer.label = @"Pfhorge TEX-1A Classic Shapes Geometry";
 }
 
 
@@ -1078,18 +1863,23 @@ fragment float4 pfhorgePreviewFragment(
     const CGFloat backingScale =
         self.window != nil ? self.window.backingScaleFactor : 1.0;
     const CGSize desiredDrawableSize = CGSizeMake(
-        std::max<CGFloat>(1.0, self.bounds.size.width * backingScale * _renderScale),
-        std::max<CGFloat>(1.0, self.bounds.size.height * backingScale * _renderScale));
-    if (std::fabs(self.drawableSize.width - desiredDrawableSize.width) > 1.0 ||
-        std::fabs(self.drawableSize.height - desiredDrawableSize.height) > 1.0) {
+        std::max<CGFloat>(
+            1.0,
+            self.bounds.size.width * backingScale * _renderScale),
+        std::max<CGFloat>(
+            1.0,
+            self.bounds.size.height * backingScale * _renderScale));
+    if (std::fabs(
+            self.drawableSize.width - desiredDrawableSize.width) > 1.0 ||
+        std::fabs(
+            self.drawableSize.height - desiredDrawableSize.height) > 1.0) {
         self.drawableSize = desiredDrawableSize;
     }
     [self updateDiagnosticsOverlay];
 
     MTLRenderPassDescriptor *passDescriptor =
         view.currentRenderPassDescriptor;
-    id<CAMetalDrawable> drawable =
-        view.currentDrawable;
+    id<CAMetalDrawable> drawable = view.currentDrawable;
 
     if (passDescriptor == nil ||
         drawable == nil ||
@@ -1100,36 +1890,64 @@ fragment float4 pfhorgePreviewFragment(
 
     id<MTLCommandBuffer> commandBuffer =
         [_commandQueue commandBuffer];
-    commandBuffer.label =
-        @"Pfhorge VM-3 Frame";
+    commandBuffer.label = @"Pfhorge TEX-1A Frame";
 
     id<MTLRenderCommandEncoder> encoder =
-        [commandBuffer renderCommandEncoderWithDescriptor:
-                       passDescriptor];
-
+        [commandBuffer renderCommandEncoderWithDescriptor:passDescriptor];
     if (encoder == nil) {
         return;
     }
 
     [encoder setRenderPipelineState:_pipelineState];
-    [encoder setDepthStencilState:_depthStencilState];
     [encoder setCullMode:MTLCullModeNone];
 
     if (_vertexBuffer != nil &&
-        !_metalVertices.empty()) {
+        !_metalVertices.empty() &&
+        !_metalDrawRanges.empty()) {
         MetalPreviewUniforms uniforms{
             [self viewProjectionMatrix],
         };
-
         [encoder setVertexBuffer:_vertexBuffer
-                         offset:0U
-                        atIndex:0U];
+                          offset:0U
+                         atIndex:0U];
         [encoder setVertexBytes:&uniforms
                          length:sizeof(uniforms)
                         atIndex:1U];
-        [encoder drawPrimitives:MTLPrimitiveTypeTriangle
-                    vertexStart:0U
-                    vertexCount:_metalVertices.size()];
+        [encoder setFragmentSamplerState:_samplerState
+                                 atIndex:0U];
+
+        const auto drawPass = [&](bool translucent) {
+            [encoder setDepthStencilState:
+                translucent
+                    ? _translucentDepthStencilState
+                    : _depthStencilState];
+            for (const MetalPreviewDrawRange& range :
+                 _metalDrawRanges) {
+                if (range.translucent != translucent ||
+                    range.textureIndex >= _drawTextures.count) {
+                    continue;
+                }
+
+                id<MTLTexture> texture =
+                    _drawTextures[range.textureIndex];
+                MetalPreviewFragmentUniforms fragmentUniforms{
+                    range.textured ? 1U : 0U,
+                    range.opacity,
+                    range.transferMode,
+                    0.0F,
+                };
+                [encoder setFragmentTexture:texture atIndex:0U];
+                [encoder setFragmentBytes:&fragmentUniforms
+                                   length:sizeof(fragmentUniforms)
+                                  atIndex:0U];
+                [encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                            vertexStart:range.vertexStart
+                            vertexCount:range.vertexCount];
+            }
+        };
+
+        drawPass(false);
+        drawPass(true);
     }
 
     [encoder endEncoding];
@@ -1255,13 +2073,23 @@ drawableSizeWillChange:(CGSize)size
     }
 
     const unichar key = [characters characterAtIndex:0U];
+    const unichar actionKey =
+        [self configuredKeyForPreference:PfhorgeVMActionKeyPreference
+                                fallback:0x20];
     const unichar orbitKey =
-        [self configuredKeyForPreference:PfhorgeVMOrbitKeyPreference fallback:'p'];
+        [self configuredKeyForPreference:PfhorgeVMOrbitKeyPreference
+                                fallback:'p'];
     const unichar resetKey =
-        [self configuredKeyForPreference:PfhorgeVMResetKeyPreference fallback:'r'];
+        [self configuredKeyForPreference:PfhorgeVMResetKeyPreference
+                                fallback:'r'];
     const unichar diagnosticsKey =
-        [self configuredKeyForPreference:PfhorgeVMDiagnosticsKeyPreference fallback:'i'];
+        [self configuredKeyForPreference:PfhorgeVMDiagnosticsKeyPreference
+                                fallback:'i'];
 
+    if (!event.isARepeat && key == actionKey && _portalModeEnabled) {
+        [self toggleNearestDoor];
+        return;
+    }
     if (!event.isARepeat && key == orbitKey) {
         [self clearPressedKeys];
         _portalModeEnabled = !_portalModeEnabled;
@@ -1275,21 +2103,145 @@ drawableSizeWillChange:(CGSize)size
             [self resetCamera];
         }
         NSLog(
-            @"Metal Visual Mode VM-3 camera mode: %@",
+            @"Metal Visual Mode VM-4A camera mode: %@",
             _portalModeEnabled
-                ? @"portal first-person"
+                ? @"collision-aware first-person"
                 : @"orbit diagnostic");
         return;
     }
-
     if (!event.isARepeat && key == resetKey) {
         [self clearPressedKeys];
         [self resetCamera];
         return;
     }
-
     if (!event.isARepeat && key == diagnosticsKey) {
         [self logPortalDiagnostics];
+        NSLog(
+            @"VM-4A texture audit: refs=%u valid=%u invalid=%u empty=%u "
+             "walls=%u textured=%u missingSide=%u platforms=%zu",
+            _previewScene.textureAudit.totalReferences,
+            _previewScene.textureAudit.validReferences,
+            _previewScene.textureAudit.invalidReferences,
+            _previewScene.textureAudit.emptyReferences,
+            _previewScene.textureAudit.wallSegments,
+            _previewScene.textureAudit.wallSegmentsWithTexture,
+            _previewScene.textureAudit.wallSegmentsWithoutSide,
+            _previewScene.platforms.size());
+        NSLog(
+            @"TEX-1A.2 render audit: textured=%lu fallback=%lu "
+             "invalid=%lu negativeCache=%lu repository=%lu image=%lu "
+             "conversion=%lu upload=%lu",
+            (unsigned long)_texturedSurfaceCount,
+            (unsigned long)_fallbackSurfaceCount,
+            (unsigned long)_invalidTextureDescriptorCount,
+            (unsigned long)_negativeTextureCacheHitCount,
+            (unsigned long)_textureRepositoryFailureCount,
+            (unsigned long)_textureImageMissingCount,
+            (unsigned long)_textureImageConversionFailureCount,
+            (unsigned long)_textureUploadFailureCount);
+
+        // Clear negative-cache state so this explicit audit records the
+        // original failure (for example ImageMissing) instead of merely
+        // reporting that a previous lookup was cached as missing.
+        [self clearClassicTextureCache];
+
+        NSMutableSet<NSNumber *> *testedTextureKeys = [NSMutableSet set];
+        NSUInteger missingWallSurfaceCount = 0U;
+        NSUInteger invalidWallDescriptorCount = 0U;
+        NSUInteger failedUniqueTextureCount = 0U;
+
+        for (const PreviewSurface& surface : _previewScene.surfaces) {
+            if (surface.id.kind != SurfaceKind::Wall &&
+                surface.id.kind != SurfaceKind::Landscape) {
+                continue;
+            }
+
+            const pfhorge::preview::PreviewTextureKey textureKey =
+                pfhorge::preview::ClassicTextureKeyFor(surface);
+
+            if (!textureKey.valid()) {
+                ++missingWallSurfaceCount;
+                ++invalidWallDescriptorCount;
+                NSLog(
+                    @"TEX-WALL-MISSING invalidDescriptor "
+                     "polygon=%u line=%u side=%u edge=%u subpart=%u "
+                     "layer=%u collection=%d bitmap=%d transfer=%d",
+                    static_cast<unsigned int>(surface.polygonID),
+                    static_cast<unsigned int>(surface.lineID),
+                    static_cast<unsigned int>(surface.sideID),
+                    static_cast<unsigned int>(surface.edgeIndex),
+                    static_cast<unsigned int>(surface.id.subpart),
+                    static_cast<unsigned int>(surface.textureLayer),
+                    static_cast<int>(surface.texture.collection),
+                    static_cast<int>(surface.texture.bitmap),
+                    static_cast<int>(surface.texture.transferMode));
+                continue;
+            }
+
+            NSNumber *packedKey = @(textureKey.packed());
+            if ([testedTextureKeys containsObject:packedKey]) {
+                continue;
+            }
+            [testedTextureKeys addObject:packedKey];
+
+            id<MTLTexture> diagnosticTexture =
+                [self classicTextureForCollection:textureKey.collection
+                                           bitmap:textureKey.bitmap];
+            if (diagnosticTexture != nil) {
+                continue;
+            }
+
+            ++missingWallSurfaceCount;
+            ++failedUniqueTextureCount;
+            NSString *failureName = @"unknown";
+            switch (_lastClassicTextureFailure) {
+                case ClassicTextureFailure::None:
+                    failureName = @"none";
+                    break;
+                case ClassicTextureFailure::InvalidDescriptor:
+                    failureName = @"invalidDescriptor";
+                    break;
+                case ClassicTextureFailure::NegativeCache:
+                    failureName = @"negativeCache";
+                    break;
+                case ClassicTextureFailure::RepositoryUnavailable:
+                    failureName = @"repositoryUnavailable";
+                    break;
+                case ClassicTextureFailure::ImageMissing:
+                    failureName = @"imageMissing";
+                    break;
+                case ClassicTextureFailure::ImageConversionFailed:
+                    failureName = @"imageConversionFailed";
+                    break;
+                case ClassicTextureFailure::UploadFailed:
+                    failureName = @"uploadFailed";
+                    break;
+            }
+
+            NSLog(
+                @"TEX-WALL-MISSING %@ polygon=%u line=%u side=%u "
+                 "edge=%u subpart=%u layer=%u collection=%d bitmap=%d "
+                 "transfer=%d",
+                failureName,
+                static_cast<unsigned int>(surface.polygonID),
+                static_cast<unsigned int>(surface.lineID),
+                static_cast<unsigned int>(surface.sideID),
+                static_cast<unsigned int>(surface.edgeIndex),
+                static_cast<unsigned int>(surface.id.subpart),
+                static_cast<unsigned int>(surface.textureLayer),
+                static_cast<int>(textureKey.collection),
+                static_cast<int>(textureKey.bitmap),
+                static_cast<int>(surface.texture.transferMode));
+        }
+
+        NSLog(
+            @"TEX-1A.2 detailed wall audit complete: "
+             "missingWallSurfaces=%lu invalidDescriptors=%lu "
+             "failedUniqueTextures=%lu testedUniqueTextures=%lu",
+            (unsigned long)missingWallSurfaceCount,
+            (unsigned long)invalidWallDescriptorCount,
+            (unsigned long)failedUniqueTextureCount,
+            (unsigned long)testedTextureKeys.count);
         return;
     }
 
@@ -1302,14 +2254,16 @@ drawableSizeWillChange:(CGSize)size
         PfhorgeVMFlyUpKeyPreference,
     ];
     const unichar fallbacks[] = {'w', 's', 'a', 'd', 'q', 'e'};
-    for (NSUInteger index = 0; index < movementPreferences.count; ++index) {
-        if (key == [self configuredKeyForPreference:movementPreferences[index]
-                                           fallback:fallbacks[index]]) {
+    for (NSUInteger index = 0;
+         index < movementPreferences.count;
+         ++index) {
+        if (key == [self configuredKeyForPreference:
+                        movementPreferences[index]
+                                            fallback:fallbacks[index]]) {
             [_pressedKeys addObject:@(key)];
             return;
         }
     }
-
     [super keyDown:event];
 }
 

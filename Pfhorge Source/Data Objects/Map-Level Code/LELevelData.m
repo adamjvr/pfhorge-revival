@@ -26,6 +26,7 @@
 
 #import "LELevelData.h"
 #import "LELevelData-private.h"
+#import "../../Content/PfhorgeLevelTextureSync.h"
 #import "LEMapDraw.h"
 #import "LEMap.h"
 
@@ -54,9 +55,113 @@
 #import "PhData.h"
 
 
+static shape_descriptor PfhorgeShapeDescriptorForEnvironment(
+    shape_descriptor descriptor,
+    short environmentCode,
+    BOOL *changed)
+{
+    if (descriptor == NONE || environmentCode < 0 || environmentCode > 4) {
+        return descriptor;
+    }
+    const uint16_t bits = (uint16_t)descriptor;
+    const uint16_t collection = (bits >> 8U) & 0x1FU;
+    if (collection < 17U || collection > 21U) {
+        return descriptor;
+    }
+    const uint16_t replacement = (uint16_t)(17 + environmentCode);
+    if (collection == replacement) {
+        return descriptor;
+    }
+    if (changed != NULL) {
+        *changed = YES;
+    }
+    return (shape_descriptor)((bits & 0xE0FFU) | (replacement << 8U));
+}
+
+static NSUInteger PfhorgeRemapLevelClassicTextures(
+    NSArray<LEPolygon *> *polygons,
+    NSArray<LESide *> *sides,
+    NSArray<PhMedia *> *mediaObjects,
+    short environmentCode)
+{
+    NSUInteger changedCount = 0U;
+    for (LEPolygon *polygon in polygons) {
+        BOOL floorChanged = NO;
+        BOOL ceilingChanged = NO;
+        const shape_descriptor floor = PfhorgeShapeDescriptorForEnvironment(
+            polygon.floorTexture,
+            environmentCode,
+            &floorChanged);
+        const shape_descriptor ceiling = PfhorgeShapeDescriptorForEnvironment(
+            polygon.ceilingTexture,
+            environmentCode,
+            &ceilingChanged);
+        if (floorChanged) {
+            polygon.floorTexture = floor;
+            ++changedCount;
+        }
+        if (ceilingChanged) {
+            polygon.ceilingTexture = ceiling;
+            ++changedCount;
+        }
+    }
+
+    for (LESide *side in sides) {
+        side_texture_definition definitions[] = {
+            side.primaryTextureStruct,
+            side.secondaryTextureStruct,
+            side.transparentTextureStruct,
+        };
+        BOOL changed[] = {NO, NO, NO};
+        for (NSUInteger index = 0U; index < 3U; ++index) {
+            definitions[index].texture =
+                PfhorgeShapeDescriptorForEnvironment(
+                    definitions[index].texture,
+                    environmentCode,
+                    &changed[index]);
+            int editorCollection = definitions[index].textureCollection;
+            if (editorCollection >= 17 && editorCollection <= 21) {
+                editorCollection -= 17;
+            }
+            if (editorCollection >= 0 && editorCollection <= 4 &&
+                editorCollection != environmentCode) {
+                // Store the normalized editor value. PreviewTexture accepts
+                // both normalized and packed collection conventions.
+                definitions[index].textureCollection = environmentCode;
+                changed[index] = YES;
+            }
+        }
+        if (changed[0]) {
+            side.primaryTextureStruct = definitions[0];
+            ++changedCount;
+        }
+        if (changed[1]) {
+            side.secondaryTextureStruct = definitions[1];
+            ++changedCount;
+        }
+        if (changed[2]) {
+            side.transparentTextureStruct = definitions[2];
+            ++changedCount;
+        }
+    }
+
+    for (PhMedia *media in mediaObjects) {
+        BOOL changed = NO;
+        const shape_descriptor descriptor =
+            PfhorgeShapeDescriptorForEnvironment(
+                media.texture,
+                environmentCode,
+                &changed);
+        if (changed) {
+            media.texture = descriptor;
+            ++changedCount;
+        }
+    }
+    return changedCount;
+}
+
 @implementation LELevelData
 @synthesize levelName=level_name;
-@synthesize environmentCode = environment_code;
 @synthesize physicsModel=physics_model;
 @synthesize songIndex=song_index;
 @synthesize missionFlags=mission_flags;
@@ -65,6 +170,40 @@
 @synthesize myUndoManager;
 @synthesize roundingSettings=defaultRoundingBehavior;
 @synthesize levelDocument=theLevelDocument;
+
+- (short)environmentCode
+{
+    return environment_code;
+}
+
+- (void)setEnvironmentCode:(short)value
+{
+    value = MAX((short)0, MIN((short)4, value));
+    if (environment_code == value) {
+        return;
+    }
+
+    const short oldValue = environment_code;
+    environment_code = value;
+    NSUInteger remappedCount = 0U;
+    if ([[NSUserDefaults standardUserDefaults]
+            boolForKey:PfhorgeRemapTexturesOnEnvironmentChangePreference]) {
+        remappedCount = PfhorgeRemapLevelClassicTextures(
+            polys ?: @[],
+            sides ?: @[],
+            media ?: @[],
+            environment_code);
+    }
+
+    [[NSNotificationCenter defaultCenter]
+        postNotificationName:PfhorgeLevelEnvironmentDidChangeNotification
+                      object:self
+                    userInfo:@{
+                        @"oldEnvironment": @(oldValue),
+                        @"newEnvironment": @(environment_code),
+                        @"remappedTextureCount": @(remappedCount),
+                    }];
+}
 
 - (NSMutableArray<PhItemPlacement *> *)getItemPlacement
 {

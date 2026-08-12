@@ -98,9 +98,6 @@
     "Bad Polygon/Lines/Points" : {
       "comment" : "Bad Polygon/Lines/Points"
     },
-    "Can Create Images Folder" : {
-      "comment" : "Can Create Images Folder"
-    },
     "Can't Add More Of These Yet…" : {
       "comment" : "Can't Add More Of These Yet…",
       "localizations" : {
@@ -195,9 +192,6 @@
     "Can't load this version of pfhorge map data: export it in earlier, release candidate 1 release of Pfhorge, then open it here." : {
       "comment" : "Can't load this version of pfhorge map data: export it in earlier, release candidate 1 release of Pfhorge, then open it here."
     },
-    "Can't load, choose shapes location in prefs…" : {
-      "comment" : "Can't load, choose shapes location in prefs…"
-    },
     "Check" : {
       "comment" : "Check"
     },
@@ -264,9 +258,6 @@
     "Could not create image for bitmap (possible end-of-file?)" : {
       "comment" : "Could not create image for bitmap (possible end-of-file?)"
     },
-    "Could not create images folder" : {
-      "comment" : "Could not create images folder"
-    },
     "Could not create script folder, there will be no scripts in script menu. (See Console)" : {
       "comment" : "Could not create script folder, there will be no scripts in script menu. (See Console)"
     },
@@ -279,9 +270,6 @@
     "Could not find an open map." : {
       "comment" : "Could not find an open map."
     },
-    "Could not load textures, please set shapes location in the prefs." : {
-      "comment" : "Could not load textures, please set shapes location in the prefs."
-    },
     "Could not read bitmap info in shapes file" : {
       "comment" : "Could not read bitmap info in shapes file"
     },
@@ -290,9 +278,6 @@
     },
     "Could not read color tables in shapes file" : {
       "comment" : "Could not read color tables in shapes file"
-    },
-    "Creating Script Folder" : {
-      "comment" : "Creating Script Folder"
     },
     "Darn!" : {
       "comment" : "Darn!"
@@ -323,9 +308,6 @@
         }
       }
     },
-    "Done Converting Level!" : {
-      "comment" : "Done Converting Level!"
-    },
     "Error Creating Script Folder" : {
       "comment" : "Error Creating Script Folder"
     },
@@ -355,6 +337,7 @@
     },
     "File named 'Image' already exsists in scenario folder, can get images." : {
       "comment" : "File named 'Image' already exists in scenario folder, can get images.",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -382,8 +365,8 @@
     "Import" : {
       "comment" : "Import"
     },
-    "Import Marathon Wad" : {
-      "comment" : "Import Marathon Wad"
+    "Import Marathon Map" : {
+      "comment" : "Import Marathon Map"
     },
     "Import Pathways Map" : {
       "comment" : "Import Pathways Map"
@@ -396,6 +379,9 @@
     },
     "In the level->addPolygon: method, an unknown result code was returned..." : {
       "comment" : "In the level->addPolygon: method, an unknown result code was returned..."
+    },
+    "Inspect" : {
+      "comment" : "Inspect Marathon map"
     },
     "Level Is Too New" : {
       "comment" : "Level Is Too New"
@@ -702,6 +688,7 @@
     },
     "Saving ‘%@’ Resource# %@…" : {
       "comment" : "Saving ‘%@’ Resource# %@…",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -713,6 +700,7 @@
     },
     "Saving converted ‘%@’ Resource# %@…" : {
       "comment" : "Saving converted ‘%@’ Resource# %@…",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -738,6 +726,7 @@
     },
     "Script folder does not exist. Please see read me for details about using this. Creating it…" : {
       "comment" : "Creating Script folder",
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -802,9 +791,6 @@
           }
         }
       }
-    },
-    "Shapes Not Found" : {
-      "comment" : "Shapes Not Found"
     },
     "Some unkown object type was found?" : {
       "comment" : "Some unkown object type was found?"

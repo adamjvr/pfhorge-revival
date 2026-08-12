@@ -31,6 +31,22 @@
 //Other Classes...
 #import "LEExtras.h"
 #import "Pfhorge-Swift.h"
+#import "../../Content/PfhorgeLevelTextureSync.h"
+
+static int PfhorgeEffectiveInspectorCollection(
+    int collection,
+    LELevelData *level)
+{
+    if (level == nil ||
+        ![[NSUserDefaults standardUserDefaults]
+            boolForKey:PfhorgeVMFollowLevelEnvironmentPreference]) {
+        return collection;
+    }
+    if (collection >= 0 && collection <= 4) {
+        return level.environmentCode;
+    }
+    return collection;
+}
 
 @interface PhTextureInspectorController ()
 
@@ -39,6 +55,7 @@
 - (void)updateMenu:(NSPopUpButton *)menu withImages:(NSArray<NSImage*> *)images;
 - (void)setupTextureUIWithSide:(LESide *)side enableTransparentTexture:(BOOL)lTransparentSide;
 - (void)addNumbersForMenu:(NSPopUpButton *)menu upTo:(int)maxItem;
+- (void)pfhorgeTextureEnvironmentDidChange:(NSNotification *)notification;
 
 @end
 
@@ -56,7 +73,18 @@
     
     basePolyRef = nil;
     baseSideRef = nil;
-    
+
+    [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(pfhorgeTextureEnvironmentDidChange:)
+               name:PfhorgeLevelEnvironmentDidChangeNotification
+             object:nil];
+    [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(pfhorgeTextureEnvironmentDidChange:)
+               name:@"PfhorgeContentSelectionDidChangeNotification"
+             object:nil];
+
     curPImages = nil;
     curSImages = nil;
     curTImages = nil;
@@ -68,6 +96,7 @@
 
 - (void)dealloc
 {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     basePolyRef = nil;
     baseSideRef = nil;
     
@@ -87,6 +116,21 @@
     
     basePolyRef = nil;
     baseSideRef = nil;
+}
+
+- (void)pfhorgeTextureEnvironmentDidChange:(NSNotification *)notification
+{
+    (void)notification;
+    currentEnvironment = -1;
+    curPImages = nil;
+    curSImages = nil;
+    curTImages = nil;
+    curFImages = nil;
+    curCImages = nil;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [[LEInspectorController sharedInspectorController]
+            updateInterfaces];
+    });
 }
 
 - (void)reset
@@ -233,8 +277,13 @@
     char floorTextureChar = [thePoly floorTextureOnly];
     char ceilingTextureChar = [thePoly ceilingTextureOnly];
     
-    int fColl = [thePoly floorTextureCollectionOnly];
-    int cColl = [thePoly ceilingTextureCollectionOnly];
+    LELevelData *activeLevel = mainInspectorController.currentLevel;
+    int fColl = PfhorgeEffectiveInspectorCollection(
+        [thePoly floorTextureCollectionOnly],
+        activeLevel);
+    int cColl = PfhorgeEffectiveInspectorCollection(
+        [thePoly ceilingTextureCollectionOnly],
+        activeLevel);
     
     basePolyRef = thePoly;
     
@@ -294,7 +343,7 @@
     
     // Floor Colletion Number Choosen
     
-    if ([floorTexture numberOfItems] > floorTextureChar && floorTextureChar < 0) {
+    if (floorTextureChar >= 0 && [floorTexture numberOfItems] > floorTextureChar) {
         [floorTexture selectItemAtIndex:floorTextureChar];
     } else {
         [self addNumbersForMenu:floorTexture upTo:(floorTextureChar + 1)];
@@ -578,9 +627,16 @@
     _sideTextureOffsetTransparentX.objectValue = [@([side transparentTextureStruct].x0) stringValue];
     _sideTextureOffsetTransparentY.objectValue = [@([side transparentTextureStruct].y0) stringValue];
     
-    int pColl = [side primaryTextureCollection];
-    int sColl = [side secondaryTextureCollection];
-    int tColl = [side transparentTextureCollection];
+    LELevelData *activeLevel = mainInspectorController.currentLevel;
+    int pColl = PfhorgeEffectiveInspectorCollection(
+        [side primaryTextureCollection],
+        activeLevel);
+    int sColl = PfhorgeEffectiveInspectorCollection(
+        [side secondaryTextureCollection],
+        activeLevel);
+    int tColl = PfhorgeEffectiveInspectorCollection(
+        [side transparentTextureCollection],
+        activeLevel);
     
     // Primary Texture Collection
     

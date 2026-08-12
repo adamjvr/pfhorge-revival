@@ -163,6 +163,29 @@ and picking tests. It need not reproduce every visual effect.
 
 ## Milestones
 
+## Current stabilization gate — no commit yet
+
+VM-4A / TEX-1A.1 / LEVEL-SYNC-1A is installed and builds, and its collision,
+door interaction, and live map synchronization are under runtime test. The
+phase remains deliberately uncommitted while TEX-1A.2 investigates incomplete
+wall texture rendering in first-person Visual Mode.
+
+The immediate gate is not “reduce the fallback count.” It is to account for
+every expected surface through the complete pipeline:
+
+```text
+map topology and side ownership
+        -> generated surface and texture layer
+        -> portal-visible frame
+        -> Shapes collection / bitmap lookup
+        -> Metal upload
+        -> opaque or translucent draw submission
+```
+
+A commit or milestone tag is permitted only when each expected wall is either
+rendered with its assigned texture or has a precise audit result proving that
+the map's texture reference is genuinely empty or invalid.
+
 ### VM-0 — preserve current behavior
 
 - capture current OpenGL Visual Mode behavior
@@ -206,39 +229,91 @@ Exit gate: 5D-space fixtures match Aleph One visibility.
 
 ### VM-4 — texture and lighting fidelity
 
-- Shapes/texture decoding
+#### VM-4A / TEX-1A.1 / LEVEL-SYNC-1A — provisional implementation
+
+- classic Shapes texture decoding and Metal upload
 - wall/floor/ceiling UV semantics
-- light intensity
-- landscapes
-- media
+- collision-aware first-person movement
+- platform and door preview interaction
+- live rebuilds from unsaved map edits
+- level environment synchronization
+- initial map and texture diagnostics
+
+Status: build-complete but not commit-ready.
+
+#### TEX-1A.2 — surface completeness and wall resolution
+
+- treat Marathon line-owned clockwise/counterclockwise side relationships as
+  authoritative instead of aliasing a missing polygon side to side zero
+- record stable polygon, line, side, edge, and texture-layer provenance
+- distinguish missing geometry from invalid descriptors, missing Shapes images,
+  conversion failures, upload failures, and cached negative lookups
+- render primary, secondary, and transparent side definitions in their correct
+  wall bands
+- route transparent portal textures through the translucent Metal pass
+- compare all topology-derived surfaces with the portal-visible frame
+- keep the existing 2D Texture Inspector unchanged
+
+Exit gate: every expected first-person wall surface is textured or has an
+explicitly justified invalid/empty map reference; Detention Center and the
+fixed wall fixtures pass without collision, door, live-sync, or document-dirty
+regressions.
+
+#### VM-4B — remaining fidelity
+
+- light intensity and state evaluation
+- landscapes and media parity
 - animated textures
 - transfer modes
+- composite/control-panel overlay parity
+- fixed-camera comparison fixtures
 
 Exit gate: fixed-camera captures are acceptably equivalent to Aleph One.
 
-### VM-5 — selection
+### VM-5 / TEX-2A — reliable surface selection
 
 - integer-ID attachment
-- side/floor/ceiling/object IDs
+- stable polygon, line, side, edge, and texture-layer provenance
+- primary/secondary/transparent/floor/ceiling identification
 - hover highlight
 - click selection
+- eyedropper foundation
 - 2D/3D selection synchronization
 - selection persistence during scene rebuilds
 
-Exit gate: every visible editable surface can be selected unambiguously.
+Exit gate: every visible editable surface and its exact texture slot can be
+selected unambiguously.
 
-### VM-6 — Forge-compatible editing
+### VM-6 / TEX-2B / TEX-2C — Forge-compatible editing
+
+#### Companion Visual Mode Texture Palette
+
+- preserve the existing 2D Texture Inspector unchanged and canonical
+- add a separate AppKit `NSWindow` that opens beside the Visual Mode window
+- associate one palette with one Visual Mode/document session
+- allow the palette to close and reopen without closing Visual Mode
+- remember independent size and position
+- optionally attach as a child window, snap, or detach; permanent docking is
+  desirable but not required for the first implementation
+- share `LESide`, `LEPolygon`, `TextureRepository`, document notifications, and
+  `NSUndoManager` with the existing inspector
+- never introduce Visual Mode-only texture state
+
+#### Editing workflows
 
 - texture paint and eyedropper
+- explicit primary/secondary/transparent/floor/ceiling target selection
 - offset and alignment editing
 - transfer modes
 - floor/ceiling height editing
 - platform bounds
 - object movement and rotation
 - undo/redo
+- immediate synchronization between both texture interfaces and Metal
 - save/reopen validation
 
-Exit gate: core Forge Visual Mode workflows pass semantic round-trip tests.
+Exit gate: core Forge Visual Mode workflows pass semantic round-trip tests and
+both texture interfaces remain synchronized.
 
 ### VM-7 — diagnostics and playtesting
 

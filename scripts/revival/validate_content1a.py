@@ -55,22 +55,43 @@ def main() -> int:
     delegate_text = delegate.read_text(encoding="utf-8")
     header_text = visual_header.read_text(encoding="utf-8")
 
-    required_manager_markers = (
-        "Pfhorge Content Manager",
-        "Install Official",
-        "Install Recommended Enhanced",
-        "api.github.com/repos/Aleph-One-Marathon/alephone/releases/latest",
-        "PfhorgeValidateZipArchive",
-        "PfhorgeAuditManagedTree",
-        "Use in Place",
-        "Repair / Reinstall",
-        "Open Manifest",
-        "Copy into Pfhorge",
-        "Visual Mode & GPU Settings",
-        "Anisotropic filtering",
+    # Later Content Manager phases retained the original installation and
+    # safety behavior while replacing several user-facing labels. Accept each
+    # supported UI generation so this inherited validator tests capabilities
+    # instead of presentation text from CONTENT-1A.
+    manager_marker_groups = (
+        ("Pfhorge Content Manager",),
+        (
+            "Install Official",
+            "Install / Reinstall Official…",
+        ),
+        (
+            "Import Texture Pack",
+            "Install Recommended Enhanced",
+            "Install / Rebuild Recommended…",
+        ),
+        ("api.github.com/repos/Aleph-One-Marathon/alephone/releases/latest",),
+        ("PfhorgeValidateZipArchive",),
+        ("PfhorgeAuditManagedTree",),
+        ("Use in Place",),
+        (
+            "Repair / Reinstall",
+            "Re-select Source to Repair",
+        ),
+        (
+            "Open Manifest",
+            "openManifest:",
+        ),
+        ("Copy into Pfhorge",),
+        ("Visual Mode & GPU Settings",),
+        ("Anisotropic filtering",),
     )
-    for marker in required_manager_markers:
-        require(marker in manager_text, f"Content Manager marker missing: {marker}")
+    for alternatives in manager_marker_groups:
+        require(
+            any(marker in manager_text for marker in alternatives),
+            "Content Manager marker group missing: "
+            + " or ".join(alternatives),
+        )
 
     required_settings_markers = (
         "PfhorgeVMForwardKeyPreference",

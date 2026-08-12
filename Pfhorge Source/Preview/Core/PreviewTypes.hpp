@@ -39,6 +39,23 @@ enum class SurfaceKind : std::uint8_t {
     EditorOverlay,
 };
 
+/**
+ * The editable texture slot represented by a preview surface.
+ *
+ * This is renderer-neutral provenance. TEX-2 surface picking and the
+ * companion Visual Mode texture palette will use the same value instead of
+ * guessing primary/secondary/transparent state from geometry afterward.
+ */
+enum class SurfaceTextureLayer : std::uint8_t {
+    None,
+    Floor,
+    Ceiling,
+    Primary,
+    Secondary,
+    Transparent,
+    Media,
+};
+
 struct TextureDescriptor final {
     std::int16_t collection = -1;
     std::int16_t bitmap = -1;

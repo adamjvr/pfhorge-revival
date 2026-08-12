@@ -7,6 +7,8 @@
 #import <Metal/Metal.h>
 #include <stdint.h>
 
+#import "PfhorgeLevelTextureSync.h"
+
 NS_ASSUME_NONNULL_BEGIN
 
 #define PfhorgeVisualModeSettingsDidChangeNotification \
@@ -22,7 +24,6 @@ NS_ASSUME_NONNULL_BEGIN
 #define PfhorgeVMOrbitKeyPreference @"PfhorgeVMOrbitKey"
 #define PfhorgeVMDiagnosticsKeyPreference @"PfhorgeVMDiagnosticsKey"
 
-// CONTENT-1A.1 keeps the old single sensitivity key as a migration source.
 #define PfhorgeVMMouseSensitivityPreference @"PfhorgeVMMouseSensitivity"
 #define PfhorgeVMMouseSensitivityXPreference @"PfhorgeVMMouseSensitivityX"
 #define PfhorgeVMMouseSensitivityYPreference @"PfhorgeVMMouseSensitivityY"
@@ -68,6 +69,7 @@ PfhorgeVisualModeDefaultValues(void)
         PfhorgeVMStrafeRightKeyPreference: @((NSInteger)'d'),
         PfhorgeVMFlyDownKeyPreference: @((NSInteger)'q'),
         PfhorgeVMFlyUpKeyPreference: @((NSInteger)'e'),
+        PfhorgeVMActionKeyPreference: @((NSInteger)0x20),
         PfhorgeVMResetKeyPreference: @((NSInteger)'r'),
         PfhorgeVMOrbitKeyPreference: @((NSInteger)'p'),
         PfhorgeVMDiagnosticsKeyPreference: @((NSInteger)'i'),
@@ -90,6 +92,10 @@ PfhorgeVisualModeDefaultValues(void)
         PfhorgeVMPreferredMetalRegistryIDPreference: @(0ULL),
         PfhorgeVMDiagnosticsOverlayPreference: @NO,
         PfhorgeVMUntexturedDiagnosticPreference: @NO,
+        PfhorgeVMCollisionModePreference: @YES,
+        PfhorgeVMLiveLevelSyncPreference: @YES,
+        PfhorgeVMFollowLevelEnvironmentPreference: @YES,
+        PfhorgeRemapTexturesOnEnvironmentChangePreference: @NO,
     };
 }
 
@@ -105,70 +111,76 @@ static inline void PfhorgeRegisterVisualModeDefaults(void)
 
     const NSInteger migrationVersion =
         [persistent[PfhorgeVMSettingsMigrationVersionPreference] integerValue];
-    if (migrationVersion >= 2) {
-        return;
-    }
 
-    // Preserve genuinely user-selected legacy bindings when present, but do
-    // not overwrite the modern WASD defaults merely because the old
-    // controller registered its own defaults.
-    NSDictionary<NSString *, NSString *> *legacyMap = @{
-        PfhorgeVMForwardKeyPreference: @"VMForwardKey",
-        PfhorgeVMBackwardKeyPreference: @"VMBackwardKey",
-        PfhorgeVMStrafeLeftKeyPreference: @"VMSlideLeftKey",
-        PfhorgeVMStrafeRightKeyPreference: @"VMSlideRightKey",
-        PfhorgeVMFlyDownKeyPreference: @"VMDownKey",
-        PfhorgeVMFlyUpKeyPreference: @"VMUpKey",
-    };
+    if (migrationVersion < 2) {
+        NSDictionary<NSString *, NSString *> *legacyMap = @{
+            PfhorgeVMForwardKeyPreference: @"VMForwardKey",
+            PfhorgeVMBackwardKeyPreference: @"VMBackwardKey",
+            PfhorgeVMStrafeLeftKeyPreference: @"VMSlideLeftKey",
+            PfhorgeVMStrafeRightKeyPreference: @"VMSlideRightKey",
+            PfhorgeVMFlyDownKeyPreference: @"VMDownKey",
+            PfhorgeVMFlyUpKeyPreference: @"VMUpKey",
+        };
 
-    for (NSString *modernKey in legacyMap) {
-        if (persistent[modernKey] != nil) {
-            continue;
+        for (NSString *modernKey in legacyMap) {
+            if (persistent[modernKey] != nil) {
+                continue;
+            }
+            NSNumber *legacyValue = persistent[legacyMap[modernKey]];
+            if ([legacyValue isKindOfClass:NSNumber.class]) {
+                [defaults setInteger:legacyValue.integerValue
+                              forKey:modernKey];
+            }
         }
-        NSString *legacyKey = legacyMap[modernKey];
-        NSNumber *legacyValue = persistent[legacyKey];
-        if ([legacyValue isKindOfClass:NSNumber.class]) {
-            [defaults setInteger:legacyValue.integerValue forKey:modernKey];
+
+        if (persistent[PfhorgeVMMouseSensitivityPreference] == nil &&
+            [persistent[@"VMMouseSpeed"] isKindOfClass:NSNumber.class]) {
+            const double legacy =
+                [persistent[@"VMMouseSpeed"] doubleValue];
+            [defaults setDouble:MAX(0.002, MIN(0.030, legacy * 0.010))
+                          forKey:PfhorgeVMMouseSensitivityPreference];
+        }
+
+        if (persistent[PfhorgeVMInvertMouseYPreference] == nil &&
+            [persistent[@"VMInvertMouse"] isKindOfClass:NSNumber.class]) {
+            [defaults setBool:[persistent[@"VMInvertMouse"] boolValue]
+                       forKey:PfhorgeVMInvertMouseYPreference];
+        }
+
+        NSNumber *oldSensitivity =
+            persistent[PfhorgeVMMouseSensitivityPreference];
+        const double migratedSensitivity =
+            [oldSensitivity isKindOfClass:NSNumber.class]
+                ? MAX(0.0005, MIN(0.10, oldSensitivity.doubleValue))
+                : [defaults doubleForKey:
+                    PfhorgeVMMouseSensitivityPreference];
+        if (persistent[PfhorgeVMMouseSensitivityXPreference] == nil) {
+            [defaults setDouble:migratedSensitivity
+                         forKey:PfhorgeVMMouseSensitivityXPreference];
+        }
+        if (persistent[PfhorgeVMMouseSensitivityYPreference] == nil) {
+            [defaults setDouble:migratedSensitivity
+                         forKey:PfhorgeVMMouseSensitivityYPreference];
         }
     }
 
-    if (persistent[PfhorgeVMMouseSensitivityPreference] == nil &&
-        [persistent[@"VMMouseSpeed"] isKindOfClass:NSNumber.class]) {
-        const double legacy = [persistent[@"VMMouseSpeed"] doubleValue];
-        [defaults setDouble:MAX(0.002, MIN(0.030, legacy * 0.010))
-                      forKey:PfhorgeVMMouseSensitivityPreference];
+    // Version 3 adds walk collision, Use/Open Door, live level polling, and
+    // explicit level-environment texture synchronization. Registered defaults
+    // supply the values; recording the version prevents repeated migration.
+    if (migrationVersion < 3) {
+        [defaults setInteger:3
+                      forKey:PfhorgeVMSettingsMigrationVersionPreference];
     }
-
-    if (persistent[PfhorgeVMInvertMouseYPreference] == nil &&
-        [persistent[@"VMInvertMouse"] isKindOfClass:NSNumber.class]) {
-        [defaults setBool:[persistent[@"VMInvertMouse"] boolValue]
-                   forKey:PfhorgeVMInvertMouseYPreference];
-    }
-
-    // Version 2 splits horizontal and vertical look settings. Preserve the
-    // phase-1 value instead of unexpectedly changing an existing setup.
-    NSNumber *oldSensitivity = persistent[PfhorgeVMMouseSensitivityPreference];
-    const double migratedSensitivity = [oldSensitivity isKindOfClass:NSNumber.class]
-        ? MAX(0.0005, MIN(0.10, oldSensitivity.doubleValue))
-        : [defaults doubleForKey:PfhorgeVMMouseSensitivityPreference];
-    if (persistent[PfhorgeVMMouseSensitivityXPreference] == nil) {
-        [defaults setDouble:migratedSensitivity
-                     forKey:PfhorgeVMMouseSensitivityXPreference];
-    }
-    if (persistent[PfhorgeVMMouseSensitivityYPreference] == nil) {
-        [defaults setDouble:migratedSensitivity
-                     forKey:PfhorgeVMMouseSensitivityYPreference];
-    }
-    [defaults setInteger:2 forKey:PfhorgeVMSettingsMigrationVersionPreference];
 }
-
 
 static inline NSInteger PfhorgeVisualModeMaximumFrameRateForScreen(
     NSScreen * _Nullable screen)
 {
     NSInteger maximum = 60;
     if (@available(macOS 12.0, *)) {
-        if (screen != nil) maximum = MAX(1, screen.maximumFramesPerSecond);
+        if (screen != nil) {
+            maximum = MAX(1, screen.maximumFramesPerSecond);
+        }
     }
     return maximum;
 }
@@ -178,8 +190,11 @@ static inline NSInteger PfhorgeResolvedVisualModeFrameRate(
 {
     NSInteger requested = [NSUserDefaults.standardUserDefaults
         integerForKey:PfhorgeVMFrameRatePreference];
-    const NSInteger maximum = PfhorgeVisualModeMaximumFrameRateForScreen(screen);
-    if (requested == PfhorgeVMFrameRateDisplayMaximum) return maximum;
+    const NSInteger maximum =
+        PfhorgeVisualModeMaximumFrameRateForScreen(screen);
+    if (requested == PfhorgeVMFrameRateDisplayMaximum) {
+        return maximum;
+    }
     return MAX(1, MIN(requested, maximum));
 }
 
@@ -219,7 +234,8 @@ static inline unichar PfhorgeVisualModeKeyFromString(
     unichar fallback)
 {
     NSString *trimmed = [string
-        stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        stringByTrimmingCharactersInSet:
+            NSCharacterSet.whitespaceAndNewlineCharacterSet];
     if (trimmed.length == 0) {
         return fallback;
     }

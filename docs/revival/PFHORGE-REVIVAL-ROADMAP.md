@@ -355,3 +355,21 @@ The next implementation package adds the unified Content Manager, official trilo
 - stream structured builder progress and improve official download progress
 - add a dedicated Content menu
 - follow each display's maximum refresh rate, including 240 Hz screens
+
+### TEX-1A — Classic Shapes Textures in Metal
+
+- carry Marathon collection/bitmap descriptors and origin-aware UVs into PreviewScene
+- decode selected original Shapes through the existing catalog
+- upload classic wall, floor, ceiling, landscape, and media images to Metal
+- activate nearest, linear, trilinear, and anisotropic sampler settings
+- preserve colored fallback and Untextured Diagnostic mode
+- defer enhanced replacement profiles, animated transfer modes, sprites, and composite overlays to later texture phases
+
+### VM-4A / TEX-1A.1 / LEVEL-SYNC-1A
+
+- render temporary platform and door states in Metal Visual Mode
+- collision-aware first-person movement and Use/Open Door interaction
+- robust wall-side texture resolution with editor-field fallback
+- live unsaved level synchronization without save/reopen cycles
+- synchronized level-environment texture menus and optional descriptor remap
+- active-map Shapes, wall-side, and platform texture audit

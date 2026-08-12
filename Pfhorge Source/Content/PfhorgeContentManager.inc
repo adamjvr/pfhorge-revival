@@ -12,6 +12,13 @@
 #include <signal.h>
 
 #import "PfhorgeVisualModeSettings.h"
+#import "LEMap.h"
+#import "LELevelData.h"
+#import "LEPolygon.h"
+#import "LELine.h"
+#import "LESide.h"
+#import "PhMedia.h"
+#import "PhPlatform.h"
 
 static NSString *const PfhorgeContentManifestSchemaVersion = @"3";
 static NSString *const PfhorgeContentSelectedProfileKey = @"selectedProfile";
@@ -916,6 +923,351 @@ static void PfhorgeTerminateTaskTree(NSTask *task)
         [killer launchAndReturnError:nil];
     }
     [task terminate];
+}
+
+static BOOL PfhorgeClassicShapeComponents(
+    shape_descriptor descriptor,
+    int *collection,
+    int *bitmap)
+{
+    if (descriptor == NONE) {
+        return NO;
+    }
+    const uint16_t bits = (uint16_t)descriptor;
+    const int rawCollection = (int)((bits >> 8U) & 0x1FU);
+    const int normalized =
+        ((rawCollection >= 17 && rawCollection <= 21) ||
+         (rawCollection >= 27 && rawCollection <= 30))
+            ? rawCollection - 17
+            : rawCollection;
+    if (!((normalized >= 0 && normalized <= 4) ||
+          (normalized >= 10 && normalized <= 13))) {
+        return NO;
+    }
+    if (collection != NULL) *collection = normalized;
+    if (bitmap != NULL) *bitmap = (int)(bits & 0xFFU);
+    return YES;
+}
+
+static LESide *PfhorgeAuditSideForPolygonEdge(
+    LEPolygon *polygon,
+    NSUInteger edgeIndex,
+    NSArray<LESide *> *allSides)
+{
+    const short edge = (short)edgeIndex;
+    LESide *side = [polygon sideObjectAtIndex:edge];
+    if (side != nil) return side;
+
+    const short polygonSideIndex = [polygon sideIndexesAtIndex:edge];
+    if (polygonSideIndex >= 0 &&
+        (NSUInteger)polygonSideIndex < allSides.count) {
+        return allSides[(NSUInteger)polygonSideIndex];
+    }
+
+    LELine *line = [polygon lineObjectAtIndex:edge];
+    if (line == nil) return nil;
+    if (line.clockwisePolygonObject == polygon) {
+        if (line.clockwisePolygonSideObject != nil) {
+            return line.clockwisePolygonSideObject;
+        }
+        const short sideIndex = line.clockwisePolygonSideIndex;
+        if (sideIndex >= 0 && (NSUInteger)sideIndex < allSides.count) {
+            return allSides[(NSUInteger)sideIndex];
+        }
+    }
+    if (line.conterclockwisePolygonObject == polygon) {
+        if (line.counterclockwisePolygonSideObject != nil) {
+            return line.counterclockwisePolygonSideObject;
+        }
+        const short sideIndex = line.counterclockwisePolygonSideIndex;
+        if (sideIndex >= 0 && (NSUInteger)sideIndex < allSides.count) {
+            return allSides[(NSUInteger)sideIndex];
+        }
+    }
+    for (LESide *candidate in allSides) {
+        if (candidate.lineObject == line &&
+            candidate.polygonObject == polygon) {
+            return candidate;
+        }
+    }
+    return nil;
+}
+
+static NSImage *PfhorgeAuditClassicImage(int collection, int bitmap)
+{
+    Class repositoryClass = NSClassFromString(@"TextureRepository");
+    if (repositoryClass == Nil) {
+        repositoryClass = NSClassFromString(@"Pfhorge.TextureRepository");
+    }
+    SEL sharedSelector = NSSelectorFromString(@"sharedTextureRepository");
+    SEL textureSelector = NSSelectorFromString(@"textureForCollection:bitmap:");
+    if (repositoryClass == Nil ||
+        ![repositoryClass respondsToSelector:sharedSelector]) {
+        return nil;
+    }
+    typedef id (*NoArgumentObjectMessage)(id, SEL);
+    typedef id (*TwoIntegerObjectMessage)(id, SEL, int32_t, int32_t);
+    id repository = ((NoArgumentObjectMessage)objc_msgSend)(
+        (id)repositoryClass,
+        sharedSelector);
+    if (repository == nil ||
+        ![repository respondsToSelector:textureSelector]) {
+        return nil;
+    }
+    return ((TwoIntegerObjectMessage)objc_msgSend)(
+        repository,
+        textureSelector,
+        (int32_t)collection,
+        (int32_t)bitmap);
+}
+
+static void PfhorgeAuditReference(
+    NSString *location,
+    shape_descriptor descriptor,
+    NSMutableSet<NSNumber *> *checkedKeys,
+    NSMutableArray<NSString *> *missing,
+    NSUInteger *references,
+    NSUInteger *invalid)
+{
+    if (descriptor == NONE) return;
+    ++*references;
+    int collection = -1;
+    int bitmap = -1;
+    if (!PfhorgeClassicShapeComponents(descriptor, &collection, &bitmap)) {
+        ++*invalid;
+        if (missing.count < 40U) {
+            [missing addObject:[NSString stringWithFormat:
+                @"%@ — invalid descriptor 0x%04x",
+                location,
+                (unsigned int)(uint16_t)descriptor]];
+        }
+        return;
+    }
+    NSNumber *key = @(((uint32_t)collection << 16U) | (uint16_t)bitmap);
+    if ([checkedKeys containsObject:key]) return;
+    [checkedKeys addObject:key];
+    if (PfhorgeAuditClassicImage(collection, bitmap) == nil &&
+        missing.count < 40U) {
+        [missing addObject:[NSString stringWithFormat:
+            @"%@ — collection %d bitmap %d missing from active Shapes",
+            location,
+            collection,
+            bitmap]];
+    }
+}
+
+static NSString *PfhorgeBuildActiveMapTextureAudit(void)
+{
+    NSDocument *document =
+        NSDocumentController.sharedDocumentController.currentDocument;
+    if (![document isKindOfClass:LEMap.class]) {
+        return @"No active Pfhorge map document.";
+    }
+    LELevelData *level = [(LEMap *)document level];
+    if (level == nil) return @"The active document has no loaded level.";
+
+    NSArray<LEPolygon *> *polygons = level.polygons;
+    NSArray<LESide *> *sides = [level getSides];
+    NSArray<PhPlatform *> *platforms = [level getPlatforms];
+    NSMutableSet<NSNumber *> *keys = [NSMutableSet set];
+    NSMutableArray<NSString *> *missing = [NSMutableArray array];
+    NSUInteger references = 0U;
+    NSUInteger invalid = 0U;
+    NSUInteger polygonEdges = 0U;
+    NSUInteger wallEdges = 0U;
+    NSUInteger sideGaps = 0U;
+    NSUInteger wallDescriptors = 0U;
+    NSUInteger compositeSides = 0U;
+    NSUInteger splitSides = 0U;
+    NSUInteger transparentDescriptors = 0U;
+    NSUInteger doors = 0U;
+
+    for (NSUInteger polygonIndex = 0U;
+         polygonIndex < polygons.count;
+         ++polygonIndex) {
+        LEPolygon *polygon = polygons[polygonIndex];
+        PfhorgeAuditReference(
+            [NSString stringWithFormat:@"Polygon %lu floor", (unsigned long)polygonIndex],
+            polygon.floorTexture,
+            keys,
+            missing,
+            &references,
+            &invalid);
+        PfhorgeAuditReference(
+            [NSString stringWithFormat:@"Polygon %lu ceiling", (unsigned long)polygonIndex],
+            polygon.ceilingTexture,
+            keys,
+            missing,
+            &references,
+            &invalid);
+        if (polygon.mediaObject != nil) {
+            PfhorgeAuditReference(
+                [NSString stringWithFormat:@"Polygon %lu media", (unsigned long)polygonIndex],
+                polygon.mediaObject.texture,
+                keys,
+                missing,
+                &references,
+                &invalid);
+        }
+
+        const short count = polygon.getTheVertexCount;
+        for (short edge = 0; edge < count; ++edge) {
+            ++polygonEdges;
+            const short adjacentIndex =
+                [polygon adjacentPolygonIndexesAtIndex:edge];
+            BOOL producesWall = YES;
+            if (adjacentIndex >= 0 &&
+                (NSUInteger)adjacentIndex < polygons.count) {
+                LEPolygon *adjacent = polygons[(NSUInteger)adjacentIndex];
+                const short openingBottom = MAX(
+                    polygon.floorHeight,
+                    adjacent.floorHeight);
+                const short openingTop = MIN(
+                    polygon.ceilingHeight,
+                    adjacent.ceilingHeight);
+                producesWall =
+                    openingBottom > polygon.floorHeight ||
+                    openingTop < polygon.ceilingHeight ||
+                    openingTop <= openingBottom;
+            }
+            if (producesWall) {
+                ++wallEdges;
+            }
+
+            LESide *side = PfhorgeAuditSideForPolygonEdge(
+                polygon,
+                (NSUInteger)edge,
+                sides);
+            if (side == nil) {
+                if (producesWall) {
+                    ++sideGaps;
+                }
+                continue;
+            }
+            if (side.type == LESideComposite) ++compositeSides;
+            if (side.type == LESideSplit) ++splitSides;
+            const side_texture_definition definitions[] = {
+                side.primaryTextureStruct,
+                side.secondaryTextureStruct,
+                side.transparentTextureStruct,
+            };
+            if (definitions[2].texture != NONE) {
+                ++transparentDescriptors;
+            }
+            NSArray<NSString *> *names = @[@"primary", @"secondary", @"transparent"];
+            for (NSUInteger index = 0U; index < 3U; ++index) {
+                shape_descriptor descriptor = definitions[index].texture;
+                if (descriptor == NONE &&
+                    definitions[index].textureCollection >= 0 &&
+                    definitions[index].textureNumber >= 0) {
+                    int collection = definitions[index].textureCollection;
+                    if ((collection >= 17 && collection <= 21) ||
+                        (collection >= 27 && collection <= 30)) {
+                        collection -= 17;
+                    }
+                    if ((collection >= 0 && collection <= 4) ||
+                        (collection >= 10 && collection <= 13)) {
+                        const int bitmap = definitions[index].textureNumber;
+                        descriptor = (shape_descriptor)(
+                            ((17 + collection) << 8) | (bitmap & 0xFF));
+                    }
+                }
+                if (descriptor != NONE) ++wallDescriptors;
+                PfhorgeAuditReference(
+                    [NSString stringWithFormat:
+                        @"Polygon %lu edge %d %@",
+                        (unsigned long)polygonIndex,
+                        edge,
+                        names[index]],
+                    descriptor,
+                    keys,
+                    missing,
+                    &references,
+                    &invalid);
+            }
+        }
+    }
+
+    for (PhPlatform *platform in platforms) {
+        if ((platform.staticFlags & PhPlatformIsDoor) != 0) ++doors;
+    }
+
+    NSString *shapesPath = [NSUserDefaults.standardUserDefaults
+        stringForKey:PfhorgeLegacyShapesPathPreference] ?: @"Not selected";
+    NSMutableString *report = [NSMutableString stringWithFormat:
+        @"Pfhorge Active Map Texture Audit\n\n"
+         "Level: %@\nEnvironment: %d\nShapes: %@\n\n"
+         "Polygons: %lu\nSides: %lu\nPolygon edges: %lu\n"
+         "Wall-producing edges: %lu\n"
+         "Wall-producing edges without a resolvable side: %lu\n"
+         "Wall texture descriptors: %lu\nComposite sides: %lu\n"
+         "Split sides: %lu\nTransparent side descriptors: %lu\n"
+         "Classic references: %lu\nUnique classic images checked: %lu\n"
+         "Invalid descriptors: %lu\nPlatforms: %lu\nDoors: %lu\n",
+        level.levelName ?: @"Untitled",
+        level.environmentCode,
+        shapesPath,
+        (unsigned long)polygons.count,
+        (unsigned long)sides.count,
+        (unsigned long)polygonEdges,
+        (unsigned long)wallEdges,
+        (unsigned long)sideGaps,
+        (unsigned long)wallDescriptors,
+        (unsigned long)compositeSides,
+        (unsigned long)splitSides,
+        (unsigned long)transparentDescriptors,
+        (unsigned long)references,
+        (unsigned long)keys.count,
+        (unsigned long)invalid,
+        (unsigned long)platforms.count,
+        (unsigned long)doors];
+    if (missing.count == 0U) {
+        [report appendString:@"\nNo missing active-Shapes images were found.\n"];
+    } else {
+        [report appendFormat:@"\nMissing/invalid entries shown: %lu\n",
+            (unsigned long)missing.count];
+        for (NSString *entry in missing) {
+            [report appendFormat:@"• %@\n", entry];
+        }
+    }
+    if (sideGaps > 0U) {
+        [report appendString:
+            @"\nThese wall-producing side gaps explain colored/untextured wall fallback even when floor and ceiling textures load correctly.\n"];
+    }
+    if (compositeSides > 0U || transparentDescriptors > 0U) {
+        [report appendString:
+            @"\nTEX-1A.1 validates these overlay references, but composite secondary overlays and transparent-side overlays remain a later rendering phase.\n"];
+    }
+    return report;
+}
+
+static void PfhorgeShowActiveMapTextureAudit(NSWindow *parentWindow)
+{
+    NSString *report = PfhorgeBuildActiveMapTextureAudit();
+    NSAlert *alert = [[NSAlert alloc] init];
+    alert.messageText = @"Active Map Texture Audit";
+    alert.informativeText = @"Classic Shapes references, wall-side linkage, and platform metadata were checked.";
+    [alert addButtonWithTitle:@"OK"];
+    [alert addButtonWithTitle:@"Copy Report"];
+    NSScrollView *scroll = [[NSScrollView alloc]
+        initWithFrame:NSMakeRect(0, 0, 720, 390)];
+    scroll.hasVerticalScroller = YES;
+    scroll.borderType = NSBezelBorder;
+    NSTextView *textView = [[NSTextView alloc]
+        initWithFrame:NSMakeRect(0, 0, 700, 390)];
+    textView.editable = NO;
+    textView.selectable = YES;
+    textView.font = [NSFont userFixedPitchFontOfSize:11.0];
+    textView.string = report;
+    scroll.documentView = textView;
+    alert.accessoryView = scroll;
+    const NSModalResponse response = [alert runModal];
+    if (response == NSAlertSecondButtonReturn) {
+        [NSPasteboard.generalPasteboard clearContents];
+        [NSPasteboard.generalPasteboard setString:report
+                                          forType:NSPasteboardTypeString];
+    }
+    (void)parentWindow;
 }
 
 @class PfhorgeContentManagerController;
@@ -2592,6 +2944,10 @@ static void PfhorgeTerminateTaskTree(NSTask *task)
     NSSlider *_verticalMovementScale;
     NSSlider *_fieldOfView;
     NSSlider *_nearPlane;
+    NSButton *_collisionMode;
+    NSButton *_liveLevelSync;
+    NSButton *_followLevelEnvironment;
+    NSButton *_remapTexturesOnEnvironmentChange;
     NSPopUpButton *_frameRate;
     NSButton *_vsync;
     NSPopUpButton *_renderScale;
@@ -2665,16 +3021,31 @@ static void PfhorgeTerminateTaskTree(NSTask *task)
 {
     NSView *view = [[NSView alloc] initWithFrame:frame];
     _keyFields = [NSMutableArray array];
-    NSArray *labels = @[@"Forward", @"Backward", @"Strafe left", @"Strafe right", @"Fly down", @"Fly up", @"Reset camera", @"Orbit diagnostic", @"Diagnostics"];
-    CGFloat y = 382;
-    for (NSUInteger index = 0; index < labels.count; ++index) {
-        [view addSubview:PfhorgeLabel(NSMakeRect(74, y, 220, 24), labels[index], 13, NO)];
-        NSTextField *field = [[NSTextField alloc] initWithFrame:NSMakeRect(310, y - 2, 120, 26)];
-        field.alignment = NSTextAlignmentCenter; field.tag = (NSInteger)index;
-        [view addSubview:field]; [_keyFields addObject:field]; y -= 38;
+    NSArray<NSString *> *labels = @[
+        @"Forward", @"Backward", @"Strafe left", @"Strafe right",
+        @"Fly down", @"Fly up", @"Use / Open door", @"Reset camera",
+        @"Orbit diagnostic", @"Diagnostics",
+    ];
+    CGFloat y = 394.0;
+    for (NSUInteger index = 0U; index < labels.count; ++index) {
+        [view addSubview:PfhorgeLabel(
+            NSMakeRect(74, y, 220, 24), labels[index], 13, NO)];
+        NSTextField *field = [[NSTextField alloc]
+            initWithFrame:NSMakeRect(310, y - 2, 120, 26)];
+        field.alignment = NSTextAlignmentCenter;
+        field.tag = (NSInteger)index;
+        [view addSubview:field];
+        [_keyFields addObject:field];
+        y -= 35.0;
     }
-    NSTextField *note = PfhorgeLabel(NSMakeRect(74, 24, 500, 34), @"Movement keys use continuous key state and are independent of macOS key-repeat timing. Each action must use a distinct key.", 12, NO);
-    note.usesSingleLineMode = NO; note.lineBreakMode = NSLineBreakByWordWrapping; [view addSubview:note];
+    NSTextField *note = PfhorgeLabel(
+        NSMakeRect(74, 18, 510, 32),
+        @"Movement is continuous. Use/Open Door is Space by default. Every action must use a distinct key.",
+        12,
+        NO);
+    note.usesSingleLineMode = NO;
+    note.lineBreakMode = NSLineBreakByWordWrapping;
+    [view addSubview:note];
     return view;
 }
 
@@ -2703,16 +3074,54 @@ static void PfhorgeTerminateTaskTree(NSTask *task)
 - (NSView *)buildCameraView:(NSRect)frame
 {
     NSView *view = [[NSView alloc] initWithFrame:frame];
-    NSArray *labels = @[@"Horizontal movement speed", @"Vertical movement multiplier", @"Field of view", @"Near clipping distance"];
-    CGFloat rows[] = {366, 294, 222, 150};
-    for (NSUInteger i=0;i<labels.count;++i) [view addSubview:PfhorgeLabel(NSMakeRect(58, rows[i], 220, 24), labels[i], 13, YES)];
-    _movementSpeed = [[NSSlider alloc] initWithFrame:NSMakeRect(286, 364, 300, 24)]; _movementSpeed.minValue=0.5; _movementSpeed.maxValue=20.0; [view addSubview:_movementSpeed];
-    _verticalMovementScale = [[NSSlider alloc] initWithFrame:NSMakeRect(286, 292, 300, 24)]; _verticalMovementScale.minValue=0.1; _verticalMovementScale.maxValue=3.0; [view addSubview:_verticalMovementScale];
-    _fieldOfView = [[NSSlider alloc] initWithFrame:NSMakeRect(286, 220, 300, 24)]; _fieldOfView.minValue=40; _fieldOfView.maxValue=110; [view addSubview:_fieldOfView];
-    _nearPlane = [[NSSlider alloc] initWithFrame:NSMakeRect(286, 148, 300, 24)]; _nearPlane.minValue=0.002; _nearPlane.maxValue=0.10; [view addSubview:_nearPlane];
-    NSTextField *note = PfhorgeLabel(NSMakeRect(58, 54, 530, 66),
-        @"WASD moves on the horizontal plane; Fly Up/Down uses the vertical multiplier. The scroll wheel changes the session movement multiplier in first-person mode and orbit distance in diagnostic mode.", 12, NO);
-    note.usesSingleLineMode=NO; note.lineBreakMode=NSLineBreakByWordWrapping; [view addSubview:note]; return view;
+    NSArray<NSString *> *labels = @[
+        @"Horizontal movement speed",
+        @"Vertical movement multiplier",
+        @"Field of view",
+        @"Near clipping distance",
+    ];
+    CGFloat rows[] = {378, 312, 246, 180};
+    for (NSUInteger index = 0U; index < labels.count; ++index) {
+        [view addSubview:PfhorgeLabel(
+            NSMakeRect(58, rows[index], 220, 24),
+            labels[index],
+            13,
+            YES)];
+    }
+    _movementSpeed = [[NSSlider alloc]
+        initWithFrame:NSMakeRect(286, 376, 300, 24)];
+    _movementSpeed.minValue = 0.5;
+    _movementSpeed.maxValue = 20.0;
+    [view addSubview:_movementSpeed];
+    _verticalMovementScale = [[NSSlider alloc]
+        initWithFrame:NSMakeRect(286, 310, 300, 24)];
+    _verticalMovementScale.minValue = 0.1;
+    _verticalMovementScale.maxValue = 3.0;
+    [view addSubview:_verticalMovementScale];
+    _fieldOfView = [[NSSlider alloc]
+        initWithFrame:NSMakeRect(286, 244, 300, 24)];
+    _fieldOfView.minValue = 40.0;
+    _fieldOfView.maxValue = 110.0;
+    [view addSubview:_fieldOfView];
+    _nearPlane = [[NSSlider alloc]
+        initWithFrame:NSMakeRect(286, 178, 300, 24)];
+    _nearPlane.minValue = 0.002;
+    _nearPlane.maxValue = 0.10;
+    [view addSubview:_nearPlane];
+    _collisionMode = [[NSButton alloc]
+        initWithFrame:NSMakeRect(58, 126, 430, 24)];
+    _collisionMode.buttonType = NSSwitchButton;
+    _collisionMode.title = @"Collision-aware walk mode (solid walls and closed doors)";
+    [view addSubview:_collisionMode];
+    NSTextField *note = PfhorgeLabel(
+        NSMakeRect(58, 42, 540, 66),
+        @"Collision mode prevents point-camera wall clipping, slides along simple walls, and constrains vertical movement to the active polygon. Disable it for the previous free-flight editor behavior.",
+        12,
+        NO);
+    note.usesSingleLineMode = NO;
+    note.lineBreakMode = NSLineBreakByWordWrapping;
+    [view addSubview:note];
+    return view;
 }
 
 - (void)refreshFrameRateOptionsPreservingSelection:(BOOL)preserve
@@ -2764,8 +3173,53 @@ static void PfhorgeTerminateTaskTree(NSTask *task)
 
 - (NSView *)buildContentView:(NSRect)frame
 {
-    NSView *view=[[NSView alloc] initWithFrame:frame]; _contentSummary=PfhorgeLabel(NSMakeRect(46,128,560,260),@"",13,NO);_contentSummary.usesSingleLineMode=NO;_contentSummary.lineBreakMode=NSLineBreakByWordWrapping;[view addSubview:_contentSummary];
-    NSButton *manage=[[NSButton alloc] initWithFrame:NSMakeRect(46,72,220,32)];manage.title=@"Open Content Manager…";manage.bezelStyle=NSBezelStyleRounded;manage.target=self;manage.action=@selector(openContentManager:);[view addSubview:manage]; return view;
+    NSView *view = [[NSView alloc] initWithFrame:frame];
+    _contentSummary = PfhorgeLabel(
+        NSMakeRect(46, 226, 570, 176), @"", 12, NO);
+    _contentSummary.usesSingleLineMode = NO;
+    _contentSummary.lineBreakMode = NSLineBreakByWordWrapping;
+    [view addSubview:_contentSummary];
+
+    _liveLevelSync = [[NSButton alloc]
+        initWithFrame:NSMakeRect(46, 188, 480, 24)];
+    _liveLevelSync.buttonType = NSSwitchButton;
+    _liveLevelSync.title = @"Update open Visual Mode from unsaved map edits";
+    [view addSubview:_liveLevelSync];
+    _followLevelEnvironment = [[NSButton alloc]
+        initWithFrame:NSMakeRect(46, 154, 520, 24)];
+    _followLevelEnvironment.buttonType = NSSwitchButton;
+    _followLevelEnvironment.title = @"Follow the level environment in texture menus and Visual Mode";
+    [view addSubview:_followLevelEnvironment];
+    _remapTexturesOnEnvironmentChange = [[NSButton alloc]
+        initWithFrame:NSMakeRect(46, 120, 560, 24)];
+    _remapTexturesOnEnvironmentChange.buttonType = NSSwitchButton;
+    _remapTexturesOnEnvironmentChange.title = @"Remap existing classic surfaces when the level environment changes";
+    [view addSubview:_remapTexturesOnEnvironmentChange];
+
+    NSButton *manage = [[NSButton alloc]
+        initWithFrame:NSMakeRect(46, 66, 220, 32)];
+    manage.title = @"Open Content Manager…";
+    manage.bezelStyle = NSBezelStyleRounded;
+    manage.target = self;
+    manage.action = @selector(openContentManager:);
+    [view addSubview:manage];
+    NSButton *audit = [[NSButton alloc]
+        initWithFrame:NSMakeRect(282, 66, 220, 32)];
+    audit.title = @"Audit Active Map Textures…";
+    audit.bezelStyle = NSBezelStyleRounded;
+    audit.target = self;
+    audit.action = @selector(runTextureAudit:);
+    [view addSubview:audit];
+
+    NSTextField *note = PfhorgeLabel(
+        NSMakeRect(46, 18, 570, 38),
+        @"The remap option is intentionally off by default because it edits placed descriptors. Following the environment changes display and selection behavior without rewriting the map.",
+        11,
+        NO);
+    note.usesSingleLineMode = NO;
+    note.lineBreakMode = NSLineBreakByWordWrapping;
+    [view addSubview:note];
+    return view;
 }
 
 - (NSView *)buildDiagnosticsView:(NSRect)frame
@@ -2778,34 +3232,137 @@ static void PfhorgeTerminateTaskTree(NSTask *task)
 
 - (void)loadSettings
 {
-    PfhorgeRegisterVisualModeDefaults(); NSUserDefaults *d=NSUserDefaults.standardUserDefaults;
-    NSArray *keys=@[PfhorgeVMForwardKeyPreference,PfhorgeVMBackwardKeyPreference,PfhorgeVMStrafeLeftKeyPreference,PfhorgeVMStrafeRightKeyPreference,PfhorgeVMFlyDownKeyPreference,PfhorgeVMFlyUpKeyPreference,PfhorgeVMResetKeyPreference,PfhorgeVMOrbitKeyPreference,PfhorgeVMDiagnosticsKeyPreference];
-    for(NSUInteger i=0;i<keys.count;++i)_keyFields[i].stringValue=PfhorgeVisualModeKeyDisplayName(PfhorgeVisualModeKey(keys[i],'?'));
-    _mouseSensitivityX.doubleValue=[d doubleForKey:PfhorgeVMMouseSensitivityXPreference]; _mouseSensitivityY.doubleValue=[d doubleForKey:PfhorgeVMMouseSensitivityYPreference];
-    _invertMouseX.state=[d boolForKey:PfhorgeVMInvertMouseXPreference]?NSControlStateValueOn:NSControlStateValueOff; _invertMouseY.state=[d boolForKey:PfhorgeVMInvertMouseYPreference]?NSControlStateValueOn:NSControlStateValueOff;
-    _lookSmoothing.doubleValue=[d doubleForKey:PfhorgeVMLookSmoothingPreference]; _movementSpeed.doubleValue=[d doubleForKey:PfhorgeVMMovementSpeedPreference]; _verticalMovementScale.doubleValue=[d doubleForKey:PfhorgeVMVerticalMovementScalePreference]; _fieldOfView.doubleValue=[d doubleForKey:PfhorgeVMFieldOfViewPreference]; _nearPlane.doubleValue=[d doubleForKey:PfhorgeVMNearPlanePreference];
-    _vsync.state=[d boolForKey:PfhorgeVMVSyncPreference]?NSControlStateValueOn:NSControlStateValueOff; _diagnosticsOverlay.state=[d boolForKey:PfhorgeVMDiagnosticsOverlayPreference]?NSControlStateValueOn:NSControlStateValueOff;
-    NSInteger fps=[d integerForKey:PfhorgeVMFrameRatePreference]; for(NSMenuItem *item in _frameRate.itemArray)if([item.representedObject integerValue]==fps){[_frameRate selectItem:item];break;}
-    double scale=[d doubleForKey:PfhorgeVMRenderScalePreference];for(NSMenuItem *item in _renderScale.itemArray)if(fabs([item.representedObject doubleValue]-scale)<0.001){[_renderScale selectItem:item];break;}
-    NSInteger samples=[d integerForKey:PfhorgeVMMSAASampleCountPreference];for(NSMenuItem *item in _msaa.itemArray)if([item.representedObject integerValue]==samples){[_msaa selectItem:item];break;}
-    NSInteger filtering=[d integerForKey:PfhorgeVMTextureFilteringPreference];for(NSMenuItem *item in _textureFiltering.itemArray)if([item.representedObject integerValue]==filtering){[_textureFiltering selectItem:item];break;}
-    NSInteger anisotropy=[d integerForKey:PfhorgeVMAnisotropyPreference];for(NSMenuItem *item in _anisotropy.itemArray)if([item.representedObject integerValue]==anisotropy){[_anisotropy selectItem:item];break;}
-    unsigned long long registryID=[[d objectForKey:PfhorgeVMPreferredMetalRegistryIDPreference] unsignedLongLongValue];for(NSMenuItem *item in _gpu.itemArray)if([item.representedObject unsignedLongLongValue]==registryID){[_gpu selectItem:item];break;}
-    NSMutableString *summary=[NSMutableString stringWithString:@"Each game has a canonical Original Shapes source and an optional Enhanced replacement profile. Enhanced never replaces the original catalog; missing replacement images fall back to Shapes.\n\n"];
-    for(NSString *gameKey in @[@"marathon",@"marathon2",@"infinity"]){NSDictionary *m=PfhorgeReadManifest(gameKey);[summary appendFormat:@"%@: Original %@ • Enhanced %@ • Active %@\n",PfhorgeContentGameDisplayName(gameKey),[m[@"scan"][@"shapes"] count]>0?@"Ready":@"Missing",[m[@"textureProfiles"] count]>0?@"Ready":@"Missing",m[PfhorgeContentSelectedProfileKey]?:@"Untextured Diagnostic"];}
-    _contentSummary.stringValue=summary;
+    PfhorgeRegisterVisualModeDefaults();
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    NSArray<NSString *> *keys = @[
+        PfhorgeVMForwardKeyPreference,
+        PfhorgeVMBackwardKeyPreference,
+        PfhorgeVMStrafeLeftKeyPreference,
+        PfhorgeVMStrafeRightKeyPreference,
+        PfhorgeVMFlyDownKeyPreference,
+        PfhorgeVMFlyUpKeyPreference,
+        PfhorgeVMActionKeyPreference,
+        PfhorgeVMResetKeyPreference,
+        PfhorgeVMOrbitKeyPreference,
+        PfhorgeVMDiagnosticsKeyPreference,
+    ];
+    const unichar fallbacks[] = {
+        'w', 's', 'a', 'd', 'q', 'e', 0x20, 'r', 'p', 'i',
+    };
+    for (NSUInteger index = 0U; index < keys.count; ++index) {
+        _keyFields[index].stringValue = PfhorgeVisualModeKeyDisplayName(
+            PfhorgeVisualModeKey(keys[index], fallbacks[index]));
+    }
+
+    _mouseSensitivityX.doubleValue = [defaults doubleForKey:PfhorgeVMMouseSensitivityXPreference];
+    _mouseSensitivityY.doubleValue = [defaults doubleForKey:PfhorgeVMMouseSensitivityYPreference];
+    _invertMouseX.state = [defaults boolForKey:PfhorgeVMInvertMouseXPreference] ? NSControlStateValueOn : NSControlStateValueOff;
+    _invertMouseY.state = [defaults boolForKey:PfhorgeVMInvertMouseYPreference] ? NSControlStateValueOn : NSControlStateValueOff;
+    _lookSmoothing.doubleValue = [defaults doubleForKey:PfhorgeVMLookSmoothingPreference];
+    _movementSpeed.doubleValue = [defaults doubleForKey:PfhorgeVMMovementSpeedPreference];
+    _verticalMovementScale.doubleValue = [defaults doubleForKey:PfhorgeVMVerticalMovementScalePreference];
+    _fieldOfView.doubleValue = [defaults doubleForKey:PfhorgeVMFieldOfViewPreference];
+    _nearPlane.doubleValue = [defaults doubleForKey:PfhorgeVMNearPlanePreference];
+    _collisionMode.state = [defaults boolForKey:PfhorgeVMCollisionModePreference] ? NSControlStateValueOn : NSControlStateValueOff;
+    _liveLevelSync.state = [defaults boolForKey:PfhorgeVMLiveLevelSyncPreference] ? NSControlStateValueOn : NSControlStateValueOff;
+    _followLevelEnvironment.state = [defaults boolForKey:PfhorgeVMFollowLevelEnvironmentPreference] ? NSControlStateValueOn : NSControlStateValueOff;
+    _remapTexturesOnEnvironmentChange.state = [defaults boolForKey:PfhorgeRemapTexturesOnEnvironmentChangePreference] ? NSControlStateValueOn : NSControlStateValueOff;
+    _vsync.state = [defaults boolForKey:PfhorgeVMVSyncPreference] ? NSControlStateValueOn : NSControlStateValueOff;
+    _diagnosticsOverlay.state = [defaults boolForKey:PfhorgeVMDiagnosticsOverlayPreference] ? NSControlStateValueOn : NSControlStateValueOff;
+
+    NSInteger fps = [defaults integerForKey:PfhorgeVMFrameRatePreference];
+    for (NSMenuItem *item in _frameRate.itemArray) if ([item.representedObject integerValue] == fps) { [_frameRate selectItem:item]; break; }
+    double scale = [defaults doubleForKey:PfhorgeVMRenderScalePreference];
+    for (NSMenuItem *item in _renderScale.itemArray) if (fabs([item.representedObject doubleValue] - scale) < 0.001) { [_renderScale selectItem:item]; break; }
+    NSInteger samples = [defaults integerForKey:PfhorgeVMMSAASampleCountPreference];
+    for (NSMenuItem *item in _msaa.itemArray) if ([item.representedObject integerValue] == samples) { [_msaa selectItem:item]; break; }
+    NSInteger filtering = [defaults integerForKey:PfhorgeVMTextureFilteringPreference];
+    for (NSMenuItem *item in _textureFiltering.itemArray) if ([item.representedObject integerValue] == filtering) { [_textureFiltering selectItem:item]; break; }
+    NSInteger anisotropy = [defaults integerForKey:PfhorgeVMAnisotropyPreference];
+    for (NSMenuItem *item in _anisotropy.itemArray) if ([item.representedObject integerValue] == anisotropy) { [_anisotropy selectItem:item]; break; }
+    unsigned long long registryID = [[defaults objectForKey:PfhorgeVMPreferredMetalRegistryIDPreference] unsignedLongLongValue];
+    for (NSMenuItem *item in _gpu.itemArray) if ([item.representedObject unsignedLongLongValue] == registryID) { [_gpu selectItem:item]; break; }
+
+    NSMutableString *summary = [NSMutableString stringWithString:
+        @"Original Shapes are the canonical catalog. Enhanced replacements remain layered on top and fall back to Shapes. VM-4A now tracks unsaved geometry, wall-side linkage, environment selection, and platform state.\n\n"];
+    for (NSString *gameKey in @[@"marathon", @"marathon2", @"infinity"]) {
+        NSDictionary *manifest = PfhorgeReadManifest(gameKey);
+        [summary appendFormat:@"%@: Original %@ • Enhanced %@ • Active %@\n",
+            PfhorgeContentGameDisplayName(gameKey),
+            [manifest[@"scan"][@"shapes"] count] > 0 ? @"Ready" : @"Missing",
+            [manifest[@"textureProfiles"] count] > 0 ? @"Ready" : @"Missing",
+            manifest[PfhorgeContentSelectedProfileKey] ?: @"Untextured Diagnostic"];
+    }
+    _contentSummary.stringValue = summary;
 }
 
 - (void)applySettings:(id)sender
 {
-    (void)sender; if(![self.window makeFirstResponder:nil]){NSBeep();return;}
-    NSArray *keys=@[PfhorgeVMForwardKeyPreference,PfhorgeVMBackwardKeyPreference,PfhorgeVMStrafeLeftKeyPreference,PfhorgeVMStrafeRightKeyPreference,PfhorgeVMFlyDownKeyPreference,PfhorgeVMFlyUpKeyPreference,PfhorgeVMResetKeyPreference,PfhorgeVMOrbitKeyPreference,PfhorgeVMDiagnosticsKeyPreference]; const unichar fallback[]={'w','s','a','d','q','e','r','p','i'};
-    NSMutableSet *seen=[NSMutableSet set];NSMutableArray *values=[NSMutableArray array];for(NSUInteger i=0;i<keys.count;++i){unichar value=PfhorgeVisualModeKeyFromString(_keyFields[i].stringValue,fallback[i]);NSNumber *n=@(value);if([seen containsObject:n]){NSAlert *a=[[NSAlert alloc] init];a.messageText=@"Duplicate Visual Mode Binding";a.informativeText=@"Each action must have a distinct key.";[a beginSheetModalForWindow:self.window completionHandler:nil];return;}[seen addObject:n];[values addObject:n];}
-    NSUserDefaults *d=NSUserDefaults.standardUserDefaults;for(NSUInteger i=0;i<keys.count;++i)[d setInteger:[values[i] integerValue] forKey:keys[i]];
-    [d setDouble:_mouseSensitivityX.doubleValue forKey:PfhorgeVMMouseSensitivityXPreference];[d setDouble:_mouseSensitivityY.doubleValue forKey:PfhorgeVMMouseSensitivityYPreference];[d setBool:_invertMouseX.state==NSControlStateValueOn forKey:PfhorgeVMInvertMouseXPreference];[d setBool:_invertMouseY.state==NSControlStateValueOn forKey:PfhorgeVMInvertMouseYPreference];[d setDouble:_lookSmoothing.doubleValue forKey:PfhorgeVMLookSmoothingPreference];
-    [d setDouble:_movementSpeed.doubleValue forKey:PfhorgeVMMovementSpeedPreference];[d setDouble:_verticalMovementScale.doubleValue forKey:PfhorgeVMVerticalMovementScalePreference];[d setDouble:_fieldOfView.doubleValue forKey:PfhorgeVMFieldOfViewPreference];[d setDouble:_nearPlane.doubleValue forKey:PfhorgeVMNearPlanePreference];
-    [d setInteger:[_frameRate.selectedItem.representedObject integerValue] forKey:PfhorgeVMFrameRatePreference];[d setBool:_vsync.state==NSControlStateValueOn forKey:PfhorgeVMVSyncPreference];[d setDouble:[_renderScale.selectedItem.representedObject doubleValue] forKey:PfhorgeVMRenderScalePreference];[d setInteger:[_msaa.selectedItem.representedObject integerValue] forKey:PfhorgeVMMSAASampleCountPreference];[d setInteger:[_textureFiltering.selectedItem.representedObject integerValue] forKey:PfhorgeVMTextureFilteringPreference];[d setInteger:[_anisotropy.selectedItem.representedObject integerValue] forKey:PfhorgeVMAnisotropyPreference];[d setObject:_gpu.selectedItem.representedObject?:@(0ULL) forKey:PfhorgeVMPreferredMetalRegistryIDPreference];[d setBool:_diagnosticsOverlay.state==NSControlStateValueOn forKey:PfhorgeVMDiagnosticsOverlayPreference];
-    PfhorgePostVisualModeSettingsChanged(); [self.window orderOut:nil];
+    (void)sender;
+    if (![self.window makeFirstResponder:nil]) {
+        NSBeep();
+        return;
+    }
+    NSArray<NSString *> *keys = @[
+        PfhorgeVMForwardKeyPreference,
+        PfhorgeVMBackwardKeyPreference,
+        PfhorgeVMStrafeLeftKeyPreference,
+        PfhorgeVMStrafeRightKeyPreference,
+        PfhorgeVMFlyDownKeyPreference,
+        PfhorgeVMFlyUpKeyPreference,
+        PfhorgeVMActionKeyPreference,
+        PfhorgeVMResetKeyPreference,
+        PfhorgeVMOrbitKeyPreference,
+        PfhorgeVMDiagnosticsKeyPreference,
+    ];
+    const unichar fallbacks[] = {
+        'w', 's', 'a', 'd', 'q', 'e', 0x20, 'r', 'p', 'i',
+    };
+    NSMutableSet<NSNumber *> *seen = [NSMutableSet set];
+    NSMutableArray<NSNumber *> *values = [NSMutableArray array];
+    for (NSUInteger index = 0U; index < keys.count; ++index) {
+        const unichar value = PfhorgeVisualModeKeyFromString(
+            _keyFields[index].stringValue,
+            fallbacks[index]);
+        NSNumber *number = @(value);
+        if ([seen containsObject:number]) {
+            NSAlert *alert = [[NSAlert alloc] init];
+            alert.messageText = @"Duplicate Visual Mode Binding";
+            alert.informativeText = @"Each action must have a distinct key.";
+            [alert beginSheetModalForWindow:self.window completionHandler:nil];
+            return;
+        }
+        [seen addObject:number];
+        [values addObject:number];
+    }
+
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    for (NSUInteger index = 0U; index < keys.count; ++index) {
+        [defaults setInteger:values[index].integerValue forKey:keys[index]];
+    }
+    [defaults setDouble:_mouseSensitivityX.doubleValue forKey:PfhorgeVMMouseSensitivityXPreference];
+    [defaults setDouble:_mouseSensitivityY.doubleValue forKey:PfhorgeVMMouseSensitivityYPreference];
+    [defaults setBool:_invertMouseX.state == NSControlStateValueOn forKey:PfhorgeVMInvertMouseXPreference];
+    [defaults setBool:_invertMouseY.state == NSControlStateValueOn forKey:PfhorgeVMInvertMouseYPreference];
+    [defaults setDouble:_lookSmoothing.doubleValue forKey:PfhorgeVMLookSmoothingPreference];
+    [defaults setDouble:_movementSpeed.doubleValue forKey:PfhorgeVMMovementSpeedPreference];
+    [defaults setDouble:_verticalMovementScale.doubleValue forKey:PfhorgeVMVerticalMovementScalePreference];
+    [defaults setDouble:_fieldOfView.doubleValue forKey:PfhorgeVMFieldOfViewPreference];
+    [defaults setDouble:_nearPlane.doubleValue forKey:PfhorgeVMNearPlanePreference];
+    [defaults setBool:_collisionMode.state == NSControlStateValueOn forKey:PfhorgeVMCollisionModePreference];
+    [defaults setBool:_liveLevelSync.state == NSControlStateValueOn forKey:PfhorgeVMLiveLevelSyncPreference];
+    [defaults setBool:_followLevelEnvironment.state == NSControlStateValueOn forKey:PfhorgeVMFollowLevelEnvironmentPreference];
+    [defaults setBool:_remapTexturesOnEnvironmentChange.state == NSControlStateValueOn forKey:PfhorgeRemapTexturesOnEnvironmentChangePreference];
+    [defaults setInteger:[_frameRate.selectedItem.representedObject integerValue] forKey:PfhorgeVMFrameRatePreference];
+    [defaults setBool:_vsync.state == NSControlStateValueOn forKey:PfhorgeVMVSyncPreference];
+    [defaults setDouble:[_renderScale.selectedItem.representedObject doubleValue] forKey:PfhorgeVMRenderScalePreference];
+    [defaults setInteger:[_msaa.selectedItem.representedObject integerValue] forKey:PfhorgeVMMSAASampleCountPreference];
+    [defaults setInteger:[_textureFiltering.selectedItem.representedObject integerValue] forKey:PfhorgeVMTextureFilteringPreference];
+    [defaults setInteger:[_anisotropy.selectedItem.representedObject integerValue] forKey:PfhorgeVMAnisotropyPreference];
+    [defaults setObject:_gpu.selectedItem.representedObject ?: @(0ULL) forKey:PfhorgeVMPreferredMetalRegistryIDPreference];
+    [defaults setBool:_diagnosticsOverlay.state == NSControlStateValueOn forKey:PfhorgeVMDiagnosticsOverlayPreference];
+    PfhorgePostVisualModeSettingsChanged();
+    [self.window orderOut:nil];
 }
 
 - (void)restoreDefaults:(id)sender { (void)sender;NSUserDefaults *d=NSUserDefaults.standardUserDefaults;for(NSString *key in PfhorgeVisualModeDefaultValues())[d removeObjectForKey:key];[d removeObjectForKey:PfhorgeVMSettingsMigrationVersionPreference];PfhorgeRegisterVisualModeDefaults();PfhorgePostVisualModeSettingsChanged();[self loadSettings]; }
@@ -2817,6 +3374,7 @@ static void PfhorgeTerminateTaskTree(NSTask *task)
 - (IBAction)showPfhorgeContentManager:(id)sender;
 - (IBAction)showPfhorgeVisualModeSettings:(id)sender;
 - (IBAction)reloadPfhorgeContent:(id)sender;
+- (IBAction)auditPfhorgeActiveMapTextures:(id)sender;
 - (IBAction)selectPfhorgeContentGame:(id)sender;
 - (IBAction)selectPfhorgeContentAppearance:(id)sender;
 - (IBAction)revealPfhorgeActiveShapes:(id)sender;
@@ -2932,6 +3490,12 @@ static void PfhorgeInstallContentAndVisualModeMenus(LEDelegate *target)
             action:@selector(reloadPfhorgeContent:) keyEquivalent:@""];
         reload.target = target;
         [contentMenu addItem:reload];
+        NSMenuItem *audit = [[NSMenuItem alloc]
+            initWithTitle:@"Audit Active Map Textures…"
+                   action:@selector(auditPfhorgeActiveMapTextures:)
+            keyEquivalent:@""];
+        audit.target = target;
+        [contentMenu addItem:audit];
         [contentMenu addItem:NSMenuItem.separatorItem];
 
         NSMenuItem *gameRoot = [[NSMenuItem alloc] initWithTitle:@"Active Game" action:nil keyEquivalent:@""];
