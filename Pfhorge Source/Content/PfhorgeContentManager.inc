@@ -3390,7 +3390,8 @@ static void PfhorgeShowActiveMapTextureAudit(NSWindow *parentWindow)
 
 - (IBAction)showPfhorgeVisualModeSettings:(id)sender
 {
-    [[PfhorgeVisualModeSettingsController sharedController] showWindow:sender];
+    [[PfhorgeUnifiedPreferencesController sharedController]
+        showVisualModePane:sender];
 }
 
 

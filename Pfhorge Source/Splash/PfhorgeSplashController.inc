@@ -75,56 +75,136 @@ static void PfhorgeSplashAppendCreditLine(
 
 static NSAttributedString *PfhorgeSplashCredits(void)
 {
-    NSFont *labelFont = [NSFont systemFontOfSize:10.75 weight:NSFontWeightSemibold];
-    NSFont *valueFont = [NSFont systemFontOfSize:10.75 weight:NSFontWeightRegular];
-    NSColor *color = [NSColor colorWithCalibratedWhite:0.97 alpha:1.0];
+    // STARTUP-1A.2:
+    // Treat the splash like a classic Macintosh software About box: compact
+    // development roster first, then smaller production/legal acknowledgements.
+    NSFont *headingFont =
+        [NSFont systemFontOfSize:9.75 weight:NSFontWeightBold];
+    NSFont *nameFont =
+        [NSFont systemFontOfSize:9.50 weight:NSFontWeightSemibold];
+    NSFont *roleFont =
+        [NSFont systemFontOfSize:9.50 weight:NSFontWeightRegular];
+    NSFont *smallLabelFont =
+        [NSFont systemFontOfSize:8.80 weight:NSFontWeightSemibold];
+    NSFont *smallValueFont =
+        [NSFont systemFontOfSize:8.80 weight:NSFontWeightRegular];
 
-    NSMutableParagraphStyle *paragraphStyle = [[NSMutableParagraphStyle alloc] init];
-    paragraphStyle.lineSpacing = 1.5;
-    paragraphStyle.paragraphSpacing = 1.5;
+    NSColor *color =
+        [NSColor colorWithCalibratedWhite:0.97 alpha:1.0];
+    NSColor *secondaryColor =
+        [NSColor colorWithCalibratedWhite:0.90 alpha:0.94];
+
+    NSMutableParagraphStyle *paragraphStyle =
+        [[NSMutableParagraphStyle alloc] init];
+    paragraphStyle.lineSpacing = 0.5;
+    paragraphStyle.paragraphSpacing = 0.5;
     paragraphStyle.lineBreakMode = NSLineBreakByWordWrapping;
 
-    NSMutableAttributedString *credits = [[NSMutableAttributedString alloc] init];
+    NSMutableParagraphStyle *compactStyle =
+        [[NSMutableParagraphStyle alloc] init];
+    compactStyle.lineSpacing = 0.0;
+    compactStyle.paragraphSpacing = 0.0;
+    compactStyle.lineBreakMode = NSLineBreakByWordWrapping;
+
+    NSMutableAttributedString *credits =
+        [[NSMutableAttributedString alloc] init];
+
+    [credits appendAttributedString:
+        [[NSAttributedString alloc]
+            initWithString:@"PFHORGE DEVELOPMENT\n"
+                attributes:@{
+                    NSFontAttributeName: headingFont,
+                    NSForegroundColorAttributeName: color,
+                    NSParagraphStyleAttributeName: paragraphStyle,
+                    NSKernAttributeName: @(0.45),
+                }]];
 
     PfhorgeSplashAppendCreditLine(
-        credits, @"Original Author: ",
-        @"Joshua D. Orr — Source archive: github.com/MaddTheSane/Pfhorge",
-        labelFont, valueFont, color, paragraphStyle);
+        credits, @"Joshua D. Orr — ",
+        @"Original creator & lead developer",
+        nameFont, roleFont, color, paragraphStyle);
 
     PfhorgeSplashAppendCreditLine(
-        credits, @"Revival & Maintenance: ",
-        @"Adam Vadala-Roth — github.com/adamjvr/pfhorge-revival",
-        labelFont, valueFont, color, paragraphStyle);
+        credits, @"C.W. “MaddTheSane” Betts — ",
+        @"Maintainer & modernization",
+        nameFont, roleFont, color, paragraphStyle);
 
     PfhorgeSplashAppendCreditLine(
-        credits, @"License: ",
-        @"GNU General Public License v3",
-        labelFont, valueFont, color, paragraphStyle);
+        credits, @"", @"github.com/MaddTheSane/Pfhorge",
+        nameFont, smallValueFont, secondaryColor, compactStyle);
+
+    PfhorgeSplashAppendCreditLine(
+        credits, @"Adam Vadala-Roth — ",
+        @"Revival lead & current maintainer",
+        nameFont, roleFont, color, paragraphStyle);
+
+    PfhorgeSplashAppendCreditLine(
+        credits, @"", @"github.com/adamjvr/pfhorge-revival",
+        nameFont, smallValueFont, secondaryColor, compactStyle);
+
+    PfhorgeSplashAppendCreditLine(
+        credits, @"Loren Petrich — ",
+        @"Map Viewer / Visual Mode code",
+        nameFont, roleFont, color, compactStyle);
+
+    PfhorgeSplashAppendCreditLine(
+        credits, @"Nathan Day — ",
+        @"Internal scripting / AppleScript infrastructure",
+        nameFont, roleFont, color, compactStyle);
+
+    PfhorgeSplashAppendCreditLine(
+        credits, @"Sean Shaw “Cathunter” — ",
+        @"Pfhorge manual & documentation",
+        nameFont, roleFont, color, compactStyle);
+
+    PfhorgeSplashAppendCreditLine(
+        credits, @"Nick Rolfe — ",
+        @"Object-angle logic",
+        nameFont, roleFont, color, compactStyle);
+
+    PfhorgeSplashAppendCreditLine(
+        credits, @"Raul Bonilla — ",
+        @"Tool-palette artwork / icons",
+        nameFont, roleFont, color, compactStyle);
+
+    PfhorgeSplashAppendCreditLine(
+        credits, @"Tom Hackett — ",
+        @"Original Pfhorge application icon",
+        nameFont, roleFont, color, compactStyle);
+
+    [credits appendAttributedString:
+        [[NSAttributedString alloc]
+            initWithString:@"\n"
+                attributes:@{
+                    NSFontAttributeName: smallValueFont,
+                    NSForegroundColorAttributeName: secondaryColor,
+                    NSParagraphStyleAttributeName: compactStyle,
+                }]];
 
     PfhorgeSplashAppendCreditLine(
         credits, @"Background Artwork: ",
         @"Craig Mullins — Marathon 2 concept artwork",
-        labelFont, valueFont, color, paragraphStyle);
+        smallLabelFont, smallValueFont, secondaryColor, compactStyle);
+
+    PfhorgeSplashAppendCreditLine(
+        credits, @"License: ",
+        @"GNU General Public License v3",
+        smallLabelFont, smallValueFont, secondaryColor, compactStyle);
 
     PfhorgeSplashAppendCreditLine(
         credits, @"Acknowledgements: ",
-        @"Bungie, Inc. and the Marathon series; the Aleph One project and its contributors.",
-        labelFont, valueFont, color, paragraphStyle);
+        @"Bungie, Marathon, and the Aleph One project.",
+        smallLabelFont, smallValueFont, secondaryColor, compactStyle);
 
     PfhorgeSplashAppendCreditLine(
         credits, @"Project Notice: ",
-        @"Pfhorge is an independent open-source project and is not affiliated with or endorsed by Bungie.",
-        labelFont, valueFont, color, paragraphStyle);
+        @"Independent open-source project; not affiliated with or endorsed by Bungie.",
+        smallLabelFont, smallValueFont, secondaryColor, compactStyle);
 
     PfhorgeSplashAppendCreditLine(
-        credits, @"Bungie Open Source: ",
-        @"bungie.net/7/en/Legal/OpenSource",
-        labelFont, valueFont, color, paragraphStyle);
-
-    PfhorgeSplashAppendCreditLine(
-        credits, @"Aleph One: ",
-        @"alephone.lhowon.org",
-        labelFont, valueFont, color, paragraphStyle);
+        credits, @"Open Source: ",
+        @"bungie.net/7/en/Legal/OpenSource  •  alephone.lhowon.org",
+        smallLabelFont, smallValueFont, secondaryColor, compactStyle);
 
     return credits;
 }
@@ -247,12 +327,14 @@ static NSAttributedString *PfhorgeSplashCredits(void)
 
     [title drawAtPoint:titlePoint withAttributes:titleAttributes];
 
-    CGFloat creditWidth = MIN(480.0, bounds.size.width * 0.50);
+    // STARTUP-1A.2: the classic-software contributor roster needs a
+    // taller block, while staying entirely on the right half of the artwork.
+    CGFloat creditWidth = MIN(520.0, bounds.size.width * 0.54);
     NSRect creditRect = NSMakeRect(
         bounds.size.width - creditWidth - 28.0,
-        30.0,
+        28.0,
         creditWidth,
-        205.0);
+        310.0);
 
     [PfhorgeSplashCredits() drawWithRect:creditRect
                                  options:NSStringDrawingUsesLineFragmentOrigin |

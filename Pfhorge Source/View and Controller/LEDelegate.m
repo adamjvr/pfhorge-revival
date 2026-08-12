@@ -36,6 +36,7 @@
 #import "PhPluginManager.h"
 
 #include "../Splash/PfhorgeSplashController.inc"
+#include "../Preferences/PfhorgeUnifiedPreferencesController.inc"
 #include "../Content/PfhorgeContentManager.inc"
 #include "../Startup/PfhorgeStartCenterController.inc"
 
@@ -590,7 +591,8 @@ static void EnsurePfhorgeSupportDirectories(void)
 
 - (IBAction)thePrefs:(id)sender
 {
-    [[PhPrefsController sharedPrefController] showWindow:sender];
+    [[PfhorgeUnifiedPreferencesController sharedController]
+        showGeneralPane:sender];
 }
 
 - (IBAction)theLayerDefaults:(id)sender
