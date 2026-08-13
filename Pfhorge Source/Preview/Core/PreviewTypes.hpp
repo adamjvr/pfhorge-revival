@@ -56,10 +56,30 @@ enum class SurfaceTextureLayer : std::uint8_t {
     Media,
 };
 
+enum class TextureDescriptorSource : std::uint8_t {
+    None,
+    PackedShape,
+    LegacySplitFields,
+    MediaDefinition,
+};
+
+/**
+ * Renderer-neutral classic texture descriptor.
+ *
+ * `collection` / `bitmap` are what TextureRepository must render.
+ * `rawCollection` / `rawBitmap` retain what the Pfhorge archive actually
+ * stored so diagnostics can distinguish level-environment compatibility
+ * remapping from real map data.
+ */
 struct TextureDescriptor final {
     std::int16_t collection = -1;
     std::int16_t bitmap = -1;
     std::int16_t transferMode = 0;
+
+    std::int16_t rawCollection = -1;
+    std::int16_t rawBitmap = -1;
+    TextureDescriptorSource source = TextureDescriptorSource::None;
+    bool environmentRemapped = false;
 };
 
 struct SurfaceID final {

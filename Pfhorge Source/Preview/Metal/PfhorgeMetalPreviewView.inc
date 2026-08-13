@@ -20,6 +20,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <vector>
 
 namespace {
@@ -51,10 +52,22 @@ struct MetalPreviewUniforms final {
     matrix_float4x4 viewProjection;
 };
 
+// VM-RENDER-FIDELITY-1
+// Per-draw texture semantics. Keep this layout mirrored exactly in MSL.
 struct MetalPreviewFragmentUniforms final {
     std::uint32_t useTexture;
     float opacity;
     std::int32_t transferMode;
+    std::uint32_t landscape;
+
+    float viewportWidth;
+    float viewportHeight;
+    float verticalFieldOfViewRadians;
+    float aspectRatio;
+
+    float cameraYaw;
+    float cameraPitch;
+    float textureAspectRatio;
     float padding;
 };
 
@@ -64,9 +77,165 @@ struct MetalPreviewDrawRange final {
     NSUInteger textureIndex;
     float opacity;
     std::int32_t transferMode;
+    bool landscape;
     bool textured;
     bool translucent;
 };
+
+[[nodiscard]] bool SurfaceIdentityMatches(
+    const PreviewSurface& first,
+    const PreviewSurface& second) noexcept
+{
+    return first.id.kind == second.id.kind &&
+           first.id.owner == second.id.owner &&
+           first.id.subpart == second.id.subpart &&
+           first.polygonID == second.polygonID &&
+           first.lineID == second.lineID &&
+           first.sideID == second.sideID &&
+           first.edgeIndex == second.edgeIndex &&
+           first.textureLayer == second.textureLayer;
+}
+
+[[nodiscard]] NSString *PfhorgePreviewStableIDString(
+    pfhorge::preview::StableID value)
+{
+    return value == pfhorge::preview::kInvalidPreviewID
+        ? @"none"
+        : [NSString stringWithFormat:@"%u",
+            static_cast<unsigned int>(value)];
+}
+
+[[nodiscard]] NSString *PfhorgePreviewSurfaceKindName(
+    SurfaceKind kind)
+{
+    switch (kind) {
+        case SurfaceKind::Wall: return @"Wall";
+        case SurfaceKind::Floor: return @"Floor";
+        case SurfaceKind::Ceiling: return @"Ceiling";
+        case SurfaceKind::Media: return @"Media";
+        case SurfaceKind::Landscape: return @"Landscape";
+        case SurfaceKind::Sprite: return @"Sprite";
+        case SurfaceKind::EditorOverlay: return @"EditorOverlay";
+    }
+    return @"Unknown";
+}
+
+[[nodiscard]] NSString *PfhorgePreviewTextureLayerName(
+    SurfaceTextureLayer layer)
+{
+    switch (layer) {
+        case SurfaceTextureLayer::None: return @"None";
+        case SurfaceTextureLayer::Floor: return @"Floor";
+        case SurfaceTextureLayer::Ceiling: return @"Ceiling";
+        case SurfaceTextureLayer::Primary: return @"Primary";
+        case SurfaceTextureLayer::Secondary: return @"Secondary";
+        case SurfaceTextureLayer::Transparent: return @"Transparent";
+        case SurfaceTextureLayer::Media: return @"Media";
+    }
+    return @"Unknown";
+}
+
+[[nodiscard]] NSString *PfhorgePreviewTextureSourceName(
+    pfhorge::preview::TextureDescriptorSource source)
+{
+    switch (source) {
+        case pfhorge::preview::TextureDescriptorSource::None:
+            return @"None";
+        case pfhorge::preview::TextureDescriptorSource::PackedShape:
+            return @"PackedShape";
+        case pfhorge::preview::TextureDescriptorSource::LegacySplitFields:
+            return @"LegacySplitFields";
+        case pfhorge::preview::TextureDescriptorSource::MediaDefinition:
+            return @"MediaDefinition";
+    }
+    return @"Unknown";
+}
+
+[[nodiscard]] NSString *PfhorgePreviewSideTypeName(
+    std::int16_t sideType)
+{
+    switch (sideType) {
+        case 0: return @"Full";
+        case 1: return @"High";
+        case 2: return @"Low";
+        case 3: return @"Composite";
+        case 4: return @"Split";
+        default: return @"None";
+    }
+}
+
+[[nodiscard]] NSString *PfhorgePreviewSurfaceDescription(
+    const PreviewSurface& surface,
+    std::int16_t environmentCode)
+{
+    return [NSString stringWithFormat:
+        @"%@ poly=%@ edge=%u line=%@ side=%@ sideType=%@ "
+         "sideFlags=0x%04x controlPanel=%@ panelType=%d mediaType=%d "
+         "layer=%@ source=%@ rawTex=%d:%d tex=%d:%d "
+         "envRemapped=%@ xfer=%d light=%d env=%d",
+        PfhorgePreviewSurfaceKindName(surface.id.kind),
+        PfhorgePreviewStableIDString(surface.polygonID),
+        static_cast<unsigned int>(surface.edgeIndex),
+        PfhorgePreviewStableIDString(surface.lineID),
+        PfhorgePreviewStableIDString(surface.sideID),
+        PfhorgePreviewSideTypeName(surface.sideType),
+        static_cast<unsigned int>(surface.sideFlags),
+        surface.isControlPanel ? @"yes" : @"no",
+        static_cast<int>(surface.controlPanelType),
+        static_cast<int>(surface.mediaType),
+        PfhorgePreviewTextureLayerName(surface.textureLayer),
+        PfhorgePreviewTextureSourceName(surface.texture.source),
+        static_cast<int>(surface.texture.rawCollection),
+        static_cast<int>(surface.texture.rawBitmap),
+        static_cast<int>(surface.texture.collection),
+        static_cast<int>(surface.texture.bitmap),
+        surface.texture.environmentRemapped ? @"yes" : @"no",
+        static_cast<int>(surface.texture.transferMode),
+        static_cast<int>(surface.lightIndex),
+        static_cast<int>(environmentCode)];
+}
+
+[[nodiscard]] bool RayTriangleIntersection(
+    simd_float3 origin,
+    simd_float3 direction,
+    simd_float3 first,
+    simd_float3 second,
+    simd_float3 third,
+    float& distance) noexcept
+{
+    constexpr float kEpsilon = 0.000001F;
+
+    const simd_float3 edge1 = second - first;
+    const simd_float3 edge2 = third - first;
+    const simd_float3 h = simd_cross(direction, edge2);
+    const float determinant = simd_dot(edge1, h);
+
+    if (std::fabs(determinant) < kEpsilon) {
+        return false;
+    }
+
+    const float inverseDeterminant = 1.0F / determinant;
+    const simd_float3 s = origin - first;
+    const float u = inverseDeterminant * simd_dot(s, h);
+    if (u < 0.0F || u > 1.0F) {
+        return false;
+    }
+
+    const simd_float3 q = simd_cross(s, edge1);
+    const float v = inverseDeterminant * simd_dot(direction, q);
+    if (v < 0.0F || u + v > 1.0F) {
+        return false;
+    }
+
+    const float hitDistance =
+        inverseDeterminant * simd_dot(edge2, q);
+    if (hitDistance <= kEpsilon) {
+        return false;
+    }
+
+    distance = hitDistance;
+    return true;
+}
 
 [[nodiscard]] matrix_float4x4 MakePerspectiveMatrix(
     float verticalFieldOfViewRadians,
@@ -218,6 +387,16 @@ struct PreviewFragmentUniforms {
     uint useTexture;
     float opacity;
     int transferMode;
+    uint landscape;
+
+    float viewportWidth;
+    float viewportHeight;
+    float verticalFieldOfViewRadians;
+    float aspectRatio;
+
+    float cameraYaw;
+    float cameraPitch;
+    float textureAspectRatio;
     float padding;
 };
 
@@ -250,9 +429,62 @@ fragment float4 pfhorgePreviewFragment(
 {
     float4 output = input.color;
     if (uniforms.useTexture != 0) {
+        float2 uv = input.textureCoordinate;
+
+        if (uniforms.landscape != 0) {
+            /*
+             * Classic Marathon landscape projection.
+             *
+             * The wall triangle still supplies the visibility/depth mask, but
+             * texture lookup comes from the view instead of the wall's physical
+             * UV span. Translation therefore does not "walk toward" the sky.
+             *
+             * Aleph One's default landscape setup uses two horizontal repeats,
+             * a perspective-style zoom of 1.2, yaw/pitch compensation and
+             * vertical clamping for Marathon 2/Infinity-style landscapes.
+             */
+            const float pi = 3.14159265358979323846;
+            const float zoom = 1.2;
+            const float pitchAdjust = 0.96;
+
+            const float viewportWidth =
+                max(uniforms.viewportWidth, 1.0);
+            const float viewportHeight =
+                max(uniforms.viewportHeight, 1.0);
+
+            float2 ndc;
+            ndc.x =
+                ((input.position.x / viewportWidth) * 2.0) - 1.0;
+            ndc.y =
+                1.0 - ((input.position.y / viewportHeight) * 2.0);
+
+            const float tanHalfFov =
+                tan(max(0.05, uniforms.verticalFieldOfViewRadians) * 0.5);
+            const float viewX =
+                ndc.x * max(uniforms.aspectRatio, 0.01) * tanHalfFov;
+            const float viewY =
+                ndc.y * tanHalfFov;
+
+            const float horizontal =
+                (uniforms.cameraYaw / pi) +
+                (viewX / (zoom * pi));
+
+            const float verticalScale =
+                max(uniforms.textureAspectRatio, 1.0) / pi;
+            const float vertical =
+                0.5 -
+                ((viewY / zoom) +
+                 sin(uniforms.cameraPitch) * pitchAdjust) *
+                verticalScale;
+
+            uv = float2(
+                fract(horizontal),
+                clamp(vertical, 0.001, 0.999));
+        }
+
         output = classicTexture.sample(
             classicSampler,
-            input.textureCoordinate);
+            uv);
         output.rgb *= input.color.rgb;
     }
     output.a *= uniforms.opacity;
@@ -312,6 +544,7 @@ fragment float4 pfhorgePreviewFragment(
 - (void)clearPressedKeys;
 - (void)updateCameraForFrame;
 - (void)updateDiagnosticsOverlay;
+- (void)pickSurfaceAtViewPoint:(NSPoint)location;
 - (void)rebuildVertexBuffer;
 - (void)resetCamera;
 - (matrix_float4x4)viewProjectionMatrix;
@@ -392,6 +625,9 @@ fragment float4 pfhorgePreviewFragment(
     float _cameraDistance;
 
     NSPoint _lastDragLocation;
+    NSPoint _mouseDownLocation;
+    float _mouseDragDistanceSquared;
+    std::optional<PreviewSurface> _selectedSurface;
 }
 
 - (instancetype)initWithFrame:(NSRect)frameRect
@@ -1324,6 +1560,22 @@ fragment float4 pfhorgePreviewFragment(
         _previewScene.topologyAudit.adjacencyResolutionMisses,
         _previewScene.topologyAudit.rejectedSelfAdjacency,
         _previewScene.portals.size());
+
+    NSLog(
+        @"VM-RENDER-CORRECTIVE-2 audit: structuralEnvRemaps=%u "
+         "mediaSurfaces=%u mediaTextureRepairs=%u "
+         "mediaHeightFromLight=%u mediaHeightFallbacks=%u "
+         "transparentRefs=%u transparentSegments=%u "
+         "transparentOnSolid=%u controlPanelWallSegments=%u",
+        _previewScene.textureAudit.structuralEnvironmentRemaps,
+        _previewScene.textureAudit.mediaSurfaces,
+        _previewScene.textureAudit.mediaDefinitionTextureRepairs,
+        _previewScene.textureAudit.mediaHeightsDerivedFromLight,
+        _previewScene.textureAudit.mediaHeightFallbacks,
+        _previewScene.textureAudit.transparentSideReferences,
+        _previewScene.textureAudit.transparentWallSegments,
+        _previewScene.textureAudit.transparentOverlaysOnSolidLines,
+        _previewScene.textureAudit.controlPanelWallSegments);
 }
 
 - (void)checkForLiveLevelChangesAtTime:(NSTimeInterval)time
@@ -1611,6 +1863,22 @@ fragment float4 pfhorgePreviewFragment(
     _textureImageConversionFailureCount = 0U;
     _textureUploadFailureCount = 0U;
 
+    if (_selectedSurface.has_value()) {
+        const auto selectedIterator = std::find_if(
+            _previewScene.surfaces.begin(),
+            _previewScene.surfaces.end(),
+            [selected = *_selectedSurface](const PreviewSurface& candidate) {
+                return SurfaceIdentityMatches(
+                    candidate,
+                    selected);
+            });
+        if (selectedIterator != _previewScene.surfaces.end()) {
+            _selectedSurface = *selectedIterator;
+        } else {
+            _selectedSurface.reset();
+        }
+    }
+
     // VM-4D: render the frame selected by the current camera mode.
     // First-person mode uses the repaired portal traversal; P/orbit mode still
     // deliberately supplies BuildWholeScenePreviewFrame for diagnostics.
@@ -1629,6 +1897,14 @@ fragment float4 pfhorgePreviewFragment(
             boolForKey:PfhorgeVMUntexturedDiagnosticPreference];
 
     for (const PreviewSurface& surface : surfaces) {
+        const bool landscapeSurface =
+            surface.id.kind == SurfaceKind::Landscape ||
+            surface.texture.transferMode == 9 ||
+            surface.texture.transferMode == 21;
+        const bool selectedSurface =
+            _selectedSurface.has_value() &&
+            SurfaceIdentityMatches(surface, *_selectedSurface);
+
         const pfhorge::preview::PreviewTextureKey key =
             pfhorge::preview::ClassicTextureKeyFor(surface);
         id<MTLTexture> texture = nil;
@@ -1682,13 +1958,26 @@ fragment float4 pfhorgePreviewFragment(
                 vertex.light,
                 0.0F,
                 1.0F);
-            const simd_float4 color = useTexture
-                ? simd_make_float4(
-                    brightness,
-                    brightness,
-                    brightness,
-                    1.0F)
-                : fallbackColor;
+            simd_float4 color;
+            if (selectedSurface) {
+                color = useTexture
+                    ? simd_make_float4(
+                        brightness,
+                        brightness * 0.52F,
+                        brightness * 0.18F,
+                        1.0F)
+                    : simd_make_float4(1.0F, 0.42F, 0.08F, 1.0F);
+            } else if (useTexture && landscapeSurface) {
+                color = simd_make_float4(1.0F, 1.0F, 1.0F, 1.0F);
+            } else {
+                color = useTexture
+                    ? simd_make_float4(
+                        brightness,
+                        brightness,
+                        brightness,
+                        1.0F)
+                    : fallbackColor;
+            }
 
             _metalVertices.push_back(MetalPreviewVertex{
                 simd_make_float3(
@@ -1719,6 +2008,7 @@ fragment float4 pfhorgePreviewFragment(
                 : 1.0F,
             static_cast<std::int32_t>(
                 surface.texture.transferMode),
+            landscapeSurface,
             useTexture,
             surface.translucent,
         });
@@ -1943,10 +2233,37 @@ fragment float4 pfhorgePreviewFragment(
 
                 id<MTLTexture> texture =
                     _drawTextures[range.textureIndex];
+                const float textureAspectRatio =
+                    texture.height > 0U
+                        ? static_cast<float>(texture.width) /
+                          static_cast<float>(texture.height)
+                        : 1.0F;
+                const float drawableHeight =
+                    std::max(
+                        1.0F,
+                        static_cast<float>(self.drawableSize.height));
+                const float drawableAspectRatio =
+                    std::max(
+                        0.01F,
+                        static_cast<float>(self.drawableSize.width) /
+                        drawableHeight);
+
                 MetalPreviewFragmentUniforms fragmentUniforms{
                     range.textured ? 1U : 0U,
                     range.opacity,
                     range.transferMode,
+                    range.landscape ? 1U : 0U,
+
+                    static_cast<float>(self.drawableSize.width),
+                    drawableHeight,
+                    _fieldOfViewDegrees *
+                        static_cast<float>(M_PI) /
+                        180.0F,
+                    drawableAspectRatio,
+
+                    _cameraYaw,
+                    _cameraPitch,
+                    textureAspectRatio,
                     0.0F,
                 };
                 [encoder setFragmentTexture:texture atIndex:0U];
@@ -2003,6 +2320,8 @@ drawableSizeWillChange:(CGSize)size
     _lastDragLocation =
         [self convertPoint:event.locationInWindow
                   fromView:nil];
+    _mouseDownLocation = _lastDragLocation;
+    _mouseDragDistanceSquared = 0.0F;
     [self.window makeFirstResponder:self];
 }
 
@@ -2011,6 +2330,16 @@ drawableSizeWillChange:(CGSize)size
     const NSPoint location =
         [self convertPoint:event.locationInWindow
                   fromView:nil];
+
+    const float downDeltaX =
+        static_cast<float>(location.x - _mouseDownLocation.x);
+    const float downDeltaY =
+        static_cast<float>(location.y - _mouseDownLocation.y);
+    _mouseDragDistanceSquared =
+        std::max(
+            _mouseDragDistanceSquared,
+            (downDeltaX * downDeltaX) +
+            (downDeltaY * downDeltaY));
 
     const float deltaX =
         static_cast<float>(
@@ -2048,6 +2377,151 @@ drawableSizeWillChange:(CGSize)size
         [self rebuildPreviewFrame];
         [self rebuildVertexBuffer];
     }
+}
+
+
+- (void)mouseUp:(NSEvent *)event
+{
+    const NSPoint location =
+        [self convertPoint:event.locationInWindow
+                  fromView:nil];
+
+    if (_mouseDragDistanceSquared <= 16.0F) {
+        [self pickSurfaceAtViewPoint:location];
+    }
+}
+
+- (void)pickSurfaceAtViewPoint:(NSPoint)location
+{
+    const float viewWidth =
+        std::max(
+            1.0F,
+            static_cast<float>(self.bounds.size.width));
+    const float viewHeight =
+        std::max(
+            1.0F,
+            static_cast<float>(self.bounds.size.height));
+    const float aspectRatio =
+        std::max(0.01F, viewWidth / viewHeight);
+
+    const float normalizedX =
+        (2.0F * static_cast<float>(location.x) / viewWidth) - 1.0F;
+    const float normalizedY =
+        (2.0F * static_cast<float>(location.y) / viewHeight) - 1.0F;
+
+    simd_float3 eye;
+    simd_float3 forward;
+
+    if (_portalModeEnabled) {
+        eye = _portalCameraPosition;
+        forward = [self portalForwardVector];
+    } else {
+        const float cosPitch = std::cos(_cameraPitch);
+        const simd_float3 orbitDirection =
+            simd_make_float3(
+                std::sin(_cameraYaw) * cosPitch,
+                std::sin(_cameraPitch),
+                std::cos(_cameraYaw) * cosPitch);
+        eye =
+            _cameraTarget +
+            orbitDirection * _cameraDistance;
+        forward = simd_normalize(_cameraTarget - eye);
+    }
+
+    const simd_float3 worldUp =
+        simd_make_float3(0.0F, 1.0F, 0.0F);
+    simd_float3 right = simd_cross(forward, worldUp);
+    if (simd_length_squared(right) < 0.000001F) {
+        right = simd_make_float3(1.0F, 0.0F, 0.0F);
+    } else {
+        right = simd_normalize(right);
+    }
+    const simd_float3 cameraUp =
+        simd_normalize(simd_cross(right, forward));
+
+    const float tanHalfFov =
+        std::tan(
+            _fieldOfViewDegrees *
+            static_cast<float>(M_PI) /
+            360.0F);
+
+    const simd_float3 rayDirection =
+        simd_normalize(
+            forward +
+            right * (normalizedX * aspectRatio * tanHalfFov) +
+            cameraUp * (normalizedY * tanHalfFov));
+
+    const PreviewSurface *nearestSurface = nullptr;
+    float nearestDistance = std::numeric_limits<float>::max();
+
+    for (const PreviewSurface& surface :
+         _previewFrame.visibleSurfaces) {
+        for (std::size_t index = 0U;
+             index + 2U < surface.indices.size();
+             index += 3U) {
+            const std::uint32_t firstIndex = surface.indices[index];
+            const std::uint32_t secondIndex = surface.indices[index + 1U];
+            const std::uint32_t thirdIndex = surface.indices[index + 2U];
+
+            if (firstIndex >= surface.vertices.size() ||
+                secondIndex >= surface.vertices.size() ||
+                thirdIndex >= surface.vertices.size()) {
+                continue;
+            }
+
+            const PreviewVertex& first = surface.vertices[firstIndex];
+            const PreviewVertex& second = surface.vertices[secondIndex];
+            const PreviewVertex& third = surface.vertices[thirdIndex];
+
+            float distance = 0.0F;
+            if (!RayTriangleIntersection(
+                    eye,
+                    rayDirection,
+                    simd_make_float3(
+                        first.position.x,
+                        first.position.y,
+                        first.position.z),
+                    simd_make_float3(
+                        second.position.x,
+                        second.position.y,
+                        second.position.z),
+                    simd_make_float3(
+                        third.position.x,
+                        third.position.y,
+                        third.position.z),
+                    distance)) {
+                continue;
+            }
+
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearestSurface = &surface;
+            }
+        }
+    }
+
+    if (nearestSurface == nullptr) {
+        _selectedSurface.reset();
+        _interactionStatus = @"Surface pick: none";
+        NSLog(@"VM-SURFACE-PICK none");
+        [self rebuildVertexBuffer];
+        return;
+    }
+
+    _selectedSurface = *nearestSurface;
+    NSString *description =
+        PfhorgePreviewSurfaceDescription(
+            *nearestSurface,
+            _previewScene.environmentCode);
+    _interactionStatus =
+        [NSString stringWithFormat:@"Selected %@", description];
+
+    NSLog(
+        @"VM-SURFACE-PICK %@ distance=%.3f",
+        description,
+        nearestDistance);
+
+    [self rebuildVertexBuffer];
 }
 
 

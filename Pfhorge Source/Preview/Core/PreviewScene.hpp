@@ -19,6 +19,14 @@ struct PreviewSurface final {
     SurfaceTextureLayer textureLayer = SurfaceTextureLayer::None;
     TextureDescriptor texture;
     std::int16_t lightIndex = -1;
+
+    // Original side/media semantics retained for read-only diagnostics.
+    std::int16_t sideType = -1;
+    std::uint16_t sideFlags = 0U;
+    std::int16_t controlPanelType = -1;
+    std::int16_t mediaType = -1;
+    bool isControlPanel = false;
+
     bool translucent = false;
     std::vector<PreviewVertex> vertices;
     std::vector<std::uint32_t> indices;
@@ -107,6 +115,15 @@ struct PreviewTextureAudit final {
     std::uint32_t compositeSides = 0U;
     std::uint32_t transparentSideReferences = 0U;
     std::uint32_t transparentWallSegments = 0U;
+
+    // VM-RENDER-CORRECTIVE-2 focused fidelity accounting.
+    std::uint32_t structuralEnvironmentRemaps = 0U;
+    std::uint32_t mediaSurfaces = 0U;
+    std::uint32_t mediaDefinitionTextureRepairs = 0U;
+    std::uint32_t mediaHeightsDerivedFromLight = 0U;
+    std::uint32_t mediaHeightFallbacks = 0U;
+    std::uint32_t transparentOverlaysOnSolidLines = 0U;
+    std::uint32_t controlPanelWallSegments = 0U;
 };
 
 

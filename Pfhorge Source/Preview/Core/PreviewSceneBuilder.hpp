@@ -12,6 +12,7 @@
 #import "LEPolygon.h"
 #import "LESide.h"
 #import "PhMedia.h"
+#import "PhLight.h"
 #import "PhPlatform.h"
 
 #include "PreviewScene.hpp"
@@ -104,6 +105,8 @@ inline void recordTextureReference(
     const std::uint16_t bits = static_cast<std::uint16_t>(shape);
     const std::int16_t rawCollection =
         static_cast<std::int16_t>((bits >> 8U) & 0x1FU);
+    const std::int16_t rawBitmap =
+        static_cast<std::int16_t>(bits & 0xFFU);
     const std::int16_t normalized =
         NormalizeClassicCollection(rawCollection);
     const std::int16_t resolved = ResolveLevelEnvironmentCollection(
@@ -114,9 +117,18 @@ inline void recordTextureReference(
 
     TextureDescriptor descriptor{
         resolved,
-        static_cast<std::int16_t>(bits & 0xFFU),
+        rawBitmap,
         static_cast<std::int16_t>(transferMode),
     };
+    descriptor.rawCollection = rawCollection;
+    descriptor.rawBitmap = rawBitmap;
+    descriptor.source = TextureDescriptorSource::PackedShape;
+    descriptor.environmentRemapped = remapped;
+
+    if (remapped) {
+        ++audit.structuralEnvironmentRemaps;
+    }
+
     recordTextureReference(audit, descriptor, remapped);
     return descriptor;
 }
@@ -148,21 +160,311 @@ inline void recordTextureReference(
             normalized,
             environmentCode,
             followLevelEnvironment);
+        const bool remapped = resolved != normalized;
         TextureDescriptor descriptor{
             resolved,
             definition.textureNumber,
             static_cast<std::int16_t>(transferMode),
         };
+        descriptor.rawCollection = definition.textureCollection;
+        descriptor.rawBitmap = definition.textureNumber;
+        descriptor.source = TextureDescriptorSource::LegacySplitFields;
+        descriptor.environmentRemapped = remapped;
+
+        if (remapped) {
+            ++audit.structuralEnvironmentRemaps;
+        }
+
         recordTextureReference(
             audit,
             descriptor,
-            resolved != normalized);
+            remapped);
         return descriptor;
     }
 
     TextureDescriptor empty;
     recordTextureReference(audit, empty, false);
     return empty;
+}
+
+struct ClassicMediaTexture final {
+    std::int16_t rawCollection = -1;
+    std::int16_t bitmap = -1;
+    std::int16_t transferMode = 0;
+
+    [[nodiscard]] bool valid() const noexcept {
+        return rawCollection >= 0 && bitmap >= 0;
+    }
+};
+
+[[nodiscard]] inline ClassicMediaTexture classicMediaTextureForType(
+    short mediaType) noexcept
+{
+    switch (mediaType) {
+        case _media_water:
+            return ClassicMediaTexture{17, 19, 0};
+        case _media_lava:
+            return ClassicMediaTexture{18, 12, 0};
+        case _media_goo:
+            return ClassicMediaTexture{21, 5, 0};
+        case _media_sewage:
+            return ClassicMediaTexture{19, 13, 0};
+        case _media_jjaro:
+            return ClassicMediaTexture{20, 13, 0};
+        default:
+            return ClassicMediaTexture{};
+    }
+}
+
+[[nodiscard]] inline TextureDescriptor textureDescriptorForMedia(
+    PhMedia *media,
+    PreviewTextureAudit& audit) noexcept
+{
+    if (media == nil) {
+        TextureDescriptor empty;
+        recordTextureReference(audit, empty, false);
+        return empty;
+    }
+
+    const std::uint16_t archivedBits =
+        static_cast<std::uint16_t>(media.texture);
+    const std::int16_t archivedCollection =
+        media.texture == NONE
+            ? static_cast<std::int16_t>(-1)
+            : static_cast<std::int16_t>((archivedBits >> 8U) & 0x1FU);
+    const std::int16_t archivedBitmap =
+        media.texture == NONE
+            ? static_cast<std::int16_t>(-1)
+            : static_cast<std::int16_t>(archivedBits & 0xFFU);
+
+    const ClassicMediaTexture definition =
+        classicMediaTextureForType(media.type);
+
+    if (!definition.valid()) {
+        if (media.texture == NONE) {
+            TextureDescriptor empty;
+            recordTextureReference(audit, empty, false);
+            return empty;
+        }
+
+        TextureDescriptor fallback{
+            NormalizeClassicCollection(archivedCollection),
+            archivedBitmap,
+            static_cast<std::int16_t>(media.transferMode),
+        };
+        fallback.rawCollection = archivedCollection;
+        fallback.rawBitmap = archivedBitmap;
+        fallback.source = TextureDescriptorSource::PackedShape;
+        recordTextureReference(audit, fallback, false);
+        return fallback;
+    }
+
+    TextureDescriptor descriptor{
+        NormalizeClassicCollection(definition.rawCollection),
+        definition.bitmap,
+        definition.transferMode,
+    };
+    descriptor.rawCollection = archivedCollection;
+    descriptor.rawBitmap = archivedBitmap;
+    descriptor.source = TextureDescriptorSource::MediaDefinition;
+
+    if (archivedCollection != definition.rawCollection ||
+        archivedBitmap != definition.bitmap ||
+        media.transferMode != definition.transferMode) {
+        ++audit.mediaDefinitionTextureRepairs;
+    }
+
+    recordTextureReference(audit, descriptor, false);
+    return descriptor;
+}
+
+[[nodiscard]] inline int nextInitialLightState(
+    int state,
+    bool stateless) noexcept
+{
+    switch (state) {
+        case PhLightStateBecomingActive:
+            return PhLightStatePrimaryActive;
+        case PhLightStatePrimaryActive:
+            return PhLightStateSecondaryActive;
+        case PhLightStateSecondaryActive:
+            return stateless
+                ? PhLightStateBecomingInactive
+                : PhLightStatePrimaryActive;
+        case PhLightStateBecomingInactive:
+            return PhLightStatePrimaryInactive;
+        case PhLightStatePrimaryInactive:
+            return PhLightStateSecondaryInactive;
+        case PhLightStateSecondaryInactive:
+            return stateless
+                ? PhLightStateBecomingActive
+                : PhLightStatePrimaryInactive;
+        default:
+            return state;
+    }
+}
+
+[[nodiscard]] inline std::int32_t evaluateInitialLightFunction(
+    PhLightFunction function,
+    std::int32_t initialIntensity,
+    std::int32_t finalIntensity,
+    int phase,
+    int period) noexcept
+{
+    if (period <= 0) {
+        return finalIntensity;
+    }
+
+    const double t = std::clamp(
+        static_cast<double>(phase) /
+            static_cast<double>(period),
+        0.0,
+        1.0);
+
+    switch (function) {
+        case PhLightFunctionConstant:
+            return finalIntensity;
+
+        case PhLightFunctionLinear:
+            return static_cast<std::int32_t>(std::llround(
+                static_cast<double>(initialIntensity) +
+                static_cast<double>(finalIntensity - initialIntensity) * t));
+
+        case PhLightFunctionSmooth: {
+            constexpr double kPi = 3.14159265358979323846;
+            const double eased =
+                0.5 - (0.5 * std::cos(kPi * t));
+            return static_cast<std::int32_t>(std::llround(
+                static_cast<double>(initialIntensity) +
+                static_cast<double>(finalIntensity - initialIntensity) *
+                    eased));
+        }
+
+        case PhLightFunctionFlicker: {
+            constexpr double kPi = 3.14159265358979323846;
+            const double eased =
+                0.5 - (0.5 * std::cos(kPi * t));
+            return static_cast<std::int32_t>(std::llround(
+                static_cast<double>(initialIntensity) +
+                static_cast<double>(finalIntensity - initialIntensity) *
+                    eased));
+        }
+
+        default:
+            return finalIntensity;
+    }
+}
+
+[[nodiscard]] inline std::int32_t initialLightIntensity(
+    PhLight *light) noexcept
+{
+    if (light == nil) {
+        return 0;
+    }
+
+    const bool initiallyActive =
+        [light getFlag:PhLightStaticFlagIsInitiallyActive];
+    const bool stateless =
+        [light getFlag:PhLightStaticFlagIsStateless];
+
+    // Aleph One seeds a newly-created light with the final intensity of its
+    // secondary active/inactive state, then enters the corresponding primary
+    // state before applying the archived phase. Keep that seed unchanged while
+    // rephasing, matching new_light() + rephase_light() without RNG deltas.
+    const PhLightState seedState = initiallyActive
+        ? PhLightStateSecondaryActive
+        : PhLightStateSecondaryInactive;
+    const std::int32_t seedIntensity =
+        static_cast<std::int32_t>(
+            [light intensityForState:seedState]);
+
+    int state = initiallyActive
+        ? PhLightStatePrimaryActive
+        : PhLightStatePrimaryInactive;
+    int phase = std::max<int>(0, light.phase);
+
+    for (int guard = 0; guard < 64; ++guard) {
+        const PhLightState lightState =
+            static_cast<PhLightState>(state);
+        const int period = std::max<int>(
+            0,
+            [light periodForState:lightState]);
+
+        // Zero-period functions are skipped in the original light system.
+        if (period <= 0) {
+            const int nextState =
+                nextInitialLightState(state, stateless);
+            if (nextState == state) {
+                return std::clamp<std::int32_t>(
+                    seedIntensity,
+                    0,
+                    65536);
+            }
+            state = nextState;
+            continue;
+        }
+
+        if (phase < period) {
+            const std::int32_t finalIntensity =
+                static_cast<std::int32_t>(
+                    [light intensityForState:lightState]);
+            return std::clamp<std::int32_t>(
+                evaluateInitialLightFunction(
+                    [light functionForState:lightState],
+                    seedIntensity,
+                    finalIntensity,
+                    phase,
+                    period),
+                0,
+                65536);
+        }
+
+        phase -= period;
+        const int nextState =
+            nextInitialLightState(state, stateless);
+        if (nextState == state) {
+            break;
+        }
+        state = nextState;
+    }
+
+    return std::clamp<std::int32_t>(
+        seedIntensity,
+        0,
+        65536);
+}
+
+[[nodiscard]] inline short resolvedMediaHeight(
+    PhMedia *media,
+    PreviewTextureAudit& audit) noexcept
+{
+    if (media == nil) {
+        return 0;
+    }
+
+    const int low = static_cast<int>(media.low);
+    const int high = static_cast<int>(media.high);
+    const int minimum = std::min(low, high);
+    const int maximum = std::max(low, high);
+
+    if (media.lightObject != nil) {
+        const std::int32_t intensity =
+            initialLightIntensity(media.lightObject);
+        const std::int64_t delta =
+            static_cast<std::int64_t>(high - low);
+        const int derived = low + static_cast<int>(
+            (delta * static_cast<std::int64_t>(intensity)) >> 16);
+        ++audit.mediaHeightsDerivedFromLight;
+        return static_cast<short>(
+            std::clamp(derived, minimum, maximum));
+    }
+
+    // Aleph One's get_light_intensity() returns zero for an absent/invalid
+    // light, so the runtime equation resolves to the low endpoint. The archived
+    // `height` member is derived runtime state, not the source of truth.
+    ++audit.mediaHeightFallbacks;
+    return static_cast<short>(
+        std::clamp(low, minimum, maximum));
 }
 
 struct ResolvedSide final {
@@ -425,6 +727,24 @@ inline void appendWallSegment(
     wall.textureLayer = textureLayer;
     wall.texture = selection.descriptor;
     wall.lightIndex = selection.lightIndex;
+
+    if (side != nil) {
+        wall.sideType =
+            static_cast<std::int16_t>(side.type);
+        wall.sideFlags =
+            static_cast<std::uint16_t>(side.flags);
+        wall.isControlPanel =
+            (side.flags & LESideIsControlPanel) != 0;
+        wall.controlPanelType =
+            wall.isControlPanel
+                ? static_cast<std::int16_t>(side.controlPanelType)
+                : static_cast<std::int16_t>(-1);
+
+        if (wall.isControlPanel) {
+            ++scene.textureAudit.controlPanelWallSegments;
+        }
+    }
+
     wall.translucent = translucent;
     wall.vertices = {
         PreviewVertex{
@@ -474,6 +794,35 @@ inline void appendWallSegment(
     return index == NSNotFound
         ? kInvalidPreviewID
         : static_cast<StableID>(index);
+}
+
+[[nodiscard]] inline StableID oppositePolygonIDForLineOwner(
+    LEPolygon *polygon,
+    NSUInteger edgeIndex,
+    NSArray<LEPolygon *> *polygons) noexcept
+{
+    if (polygon == nil || polygons == nil) {
+        return kInvalidPreviewID;
+    }
+
+    LELine *line = [polygon lineObjectAtIndex:
+        static_cast<short>(edgeIndex)];
+    if (line == nil) {
+        return kInvalidPreviewID;
+    }
+
+    LEPolygon *candidate = nil;
+    if (line.clockwisePolygonObject == polygon) {
+        candidate = line.conterclockwisePolygonObject;
+    } else if (line.conterclockwisePolygonObject == polygon) {
+        candidate = line.clockwisePolygonObject;
+    }
+
+    if (candidate == nil || candidate == polygon) {
+        return kInvalidPreviewID;
+    }
+
+    return polygonIDForObject(candidate, polygons);
 }
 
 /**
@@ -825,9 +1174,40 @@ inline void buildPlatformGeometry(
         }
         PhMedia *media = polygon.mediaObject;
         if (media != nil) {
+            detail::hashValue(hash, static_cast<std::uint16_t>(media.type));
+            detail::hashValue(hash, static_cast<std::uint16_t>(media.low));
+            detail::hashValue(hash, static_cast<std::uint16_t>(media.high));
             detail::hashValue(hash, static_cast<std::uint16_t>(media.height));
             detail::hashValue(hash, static_cast<std::uint16_t>(media.texture));
             detail::hashValue(hash, static_cast<std::uint16_t>(media.transferMode));
+
+            PhLight *mediaLight = media.lightObject;
+            if (mediaLight != nil) {
+                detail::hashValue(
+                    hash,
+                    static_cast<std::uint16_t>(mediaLight.flags));
+                detail::hashValue(
+                    hash,
+                    static_cast<std::uint16_t>(mediaLight.phase));
+                for (int state = 0;
+                     state < PhLightStateTotalCount;
+                     ++state) {
+                    const PhLightState lightState =
+                        static_cast<PhLightState>(state);
+                    detail::hashValue(
+                        hash,
+                        static_cast<std::uint16_t>(
+                            [mediaLight functionForState:lightState]));
+                    detail::hashValue(
+                        hash,
+                        static_cast<std::uint16_t>(
+                            [mediaLight periodForState:lightState]));
+                    detail::hashValue(
+                        hash,
+                        static_cast<std::uint32_t>(
+                            [mediaLight intensityForState:lightState]));
+                }
+            }
         }
     }
 
@@ -1033,9 +1413,16 @@ inline void buildPlatformGeometry(
         scene.surfaces.push_back(std::move(ceiling));
 
         PhMedia *media = polygon.mediaObject;
+        const short mediaHeight = media != nil
+            ? detail::resolvedMediaHeight(
+                media,
+                scene.textureAudit)
+            : static_cast<short>(0);
         if (media != nil &&
-            media.height > floorHeights[polygonIndex] &&
-            media.height < ceilingHeights[polygonIndex]) {
+            mediaHeight > floorHeights[polygonIndex] &&
+            mediaHeight < ceilingHeights[polygonIndex]) {
+            ++scene.textureAudit.mediaSurfaces;
+
             PreviewSurface mediaSurface;
             mediaSurface.id = SurfaceID{
                 SurfaceKind::Media,
@@ -1045,12 +1432,12 @@ inline void buildPlatformGeometry(
             mediaSurface.polygonID = stablePolygonID;
             mediaSurface.textureLayer = SurfaceTextureLayer::Media;
             mediaSurface.translucent = true;
-            mediaSurface.texture = detail::textureDescriptorForShape(
-                media.texture,
-                media.transferMode,
-                scene.environmentCode,
-                options.followLevelEnvironment,
-                scene.textureAudit);
+            mediaSurface.mediaType =
+                static_cast<std::int16_t>(media.type);
+            mediaSurface.texture =
+                detail::textureDescriptorForMedia(
+                    media,
+                    scene.textureAudit);
             mediaSurface.lightIndex = polygon.mediaLightsourceIndex;
             mediaSurface.vertices.reserve(vertexCount);
             for (NSUInteger vertexIndex = 0U;
@@ -1058,7 +1445,7 @@ inline void buildPlatformGeometry(
                  ++vertexIndex) {
                 LEMapPoint *point = vertices[vertexIndex];
                 mediaSurface.vertices.push_back(PreviewVertex{
-                    detail::pointAtHeight(point, media.height),
+                    detail::pointAtHeight(point, mediaHeight),
                     detail::textureCoordinateForPoint(point, media.origin),
                     1.0F,
                 });
@@ -1089,6 +1476,62 @@ inline void buildPlatformGeometry(
                 line != nil && (line.flags & LELineLandscape) != 0;
             const StableID adjacentID =
                 previewPolygon.adjacentPolygonIDs[edgeIndex];
+
+            // A side's transparent texture is an independent overlay pass.
+            // It is not restricted to traversable portal lines.
+            if (side != nil &&
+                detail::sideTextureDefinitionHasReference(
+                    side.transparentTextureStruct)) {
+                ++scene.textureAudit.transparentSideReferences;
+
+                short transparentBottom =
+                    floorHeights[polygonIndex];
+                short transparentTop =
+                    ceilingHeights[polygonIndex];
+
+                const StableID oppositeID =
+                    detail::oppositePolygonIDForLineOwner(
+                        polygon,
+                        edgeIndex,
+                        polygons);
+                if (oppositeID != kInvalidPreviewID &&
+                    oppositeID < polygons.count) {
+                    transparentBottom = std::max(
+                        transparentBottom,
+                        floorHeights[oppositeID]);
+                    transparentTop = std::min(
+                        transparentTop,
+                        ceilingHeights[oppositeID]);
+                }
+
+                if (transparentTop > transparentBottom) {
+                    const bool transparentLandscape =
+                        side.transparentTransferMode == 9 ||
+                        side.transparentTransferMode == 21;
+
+                    if (!detail::lineIsTransparent(line)) {
+                        ++scene.textureAudit
+                            .transparentOverlaysOnSolidLines;
+                    }
+
+                    detail::appendWallSegment(
+                        scene,
+                        stablePolygonID,
+                        static_cast<std::uint16_t>(edgeIndex),
+                        1U,
+                        first,
+                        second,
+                        transparentBottom,
+                        transparentTop,
+                        side,
+                        line,
+                        transparentLandscape,
+                        SurfaceTextureLayer::Transparent,
+                        true,
+                        scene.environmentCode,
+                        options.followLevelEnvironment);
+                }
+            }
 
             if (adjacentID == kInvalidPreviewID ||
                 adjacentID >= polygons.count) {
@@ -1147,28 +1590,6 @@ inline void buildPlatformGeometry(
                 detail::pointAtHeight(second, openingTop),
                 detail::pointAtHeight(first, openingTop),
             });
-
-            if (side != nil &&
-                detail::sideTextureDefinitionHasReference(
-                    side.transparentTextureStruct)) {
-                ++scene.textureAudit.transparentSideReferences;
-                detail::appendWallSegment(
-                    scene,
-                    stablePolygonID,
-                    static_cast<std::uint16_t>(edgeIndex),
-                    1U,
-                    first,
-                    second,
-                    openingBottom,
-                    openingTop,
-                    side,
-                    line,
-                    false,
-                    SurfaceTextureLayer::Transparent,
-                    true,
-                    scene.environmentCode,
-                    options.followLevelEnvironment);
-            }
 
             detail::appendWallSegment(
                 scene,
