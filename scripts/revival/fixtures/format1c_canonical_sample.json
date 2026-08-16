@@ -1,0 +1,441 @@
+{
+  "$schema": "urn:pfhorge:schema:level:1",
+  "editor": {
+    "currentLayer": "adf961d3-0cb2-5de9-b098-201bb95bb28d",
+    "layers": [
+      {
+        "color": null,
+        "id": "adf961d3-0cb2-5de9-b098-201bb95bb28d",
+        "members": [
+          "3cd094fb-9720-5006-a213-e9ae0d4fb95c"
+        ],
+        "name": "Default"
+      }
+    ],
+    "levelOptions": {
+      "PhEnableGridBool": true,
+      "PhGridFactor": 1.0
+    },
+    "lineOverrides": [
+      {
+        "enabled": false,
+        "landscape": false,
+        "line": "89c46019-72c8-5271-a177-4bf207578789",
+        "noSides": false,
+        "solid": false,
+        "transparent": false
+      }
+    ],
+    "names": {
+      "3cd094fb-9720-5006-a213-e9ae0d4fb95c": "Triangle"
+    },
+    "noteGroups": [
+      {
+        "color": null,
+        "id": "d6493656-e3a1-5ea5-9818-53bc9dc277a3",
+        "members": [
+          "e5ecb675-c274-5c1f-b8b5-d65f0ece70d5"
+        ],
+        "name": "Notes",
+        "visible": true
+      }
+    ]
+  },
+  "extensions": {},
+  "geometry": {
+    "lines": [
+      {
+        "endPoint": "c9c52442-022e-5dbb-8f3c-ab95c773e677",
+        "flags": 16384,
+        "id": "89c46019-72c8-5271-a177-4bf207578789",
+        "startPoint": "d671a661-16cf-5b25-a92a-921ab48f7190"
+      },
+      {
+        "endPoint": "3908aea0-3e6f-53e9-a2a9-0d47bbd3bd28",
+        "flags": 16384,
+        "id": "94f02f95-ab18-5fb4-b3f1-09737422eff2",
+        "startPoint": "c9c52442-022e-5dbb-8f3c-ab95c773e677"
+      },
+      {
+        "endPoint": "d671a661-16cf-5b25-a92a-921ab48f7190",
+        "flags": 16384,
+        "id": "38ecfe18-a0a3-598a-81c7-f8612f0b2abd",
+        "startPoint": "3908aea0-3e6f-53e9-a2a9-0d47bbd3bd28"
+      }
+    ],
+    "points": [
+      {
+        "id": "d671a661-16cf-5b25-a92a-921ab48f7190",
+        "x": 0,
+        "y": 0
+      },
+      {
+        "id": "c9c52442-022e-5dbb-8f3c-ab95c773e677",
+        "x": 1024,
+        "y": 0
+      },
+      {
+        "id": "3908aea0-3e6f-53e9-a2a9-0d47bbd3bd28",
+        "x": 0,
+        "y": 1024
+      }
+    ],
+    "polygons": [
+      {
+        "ambientSound": "0b1be1d2-c066-5da7-a2d4-be7cffde5a25",
+        "ceiling": {
+          "height": 1024,
+          "light": "3e87f47a-0e51-5223-be81-269a8803afcf",
+          "origin": {
+            "x": 0,
+            "y": 0
+          },
+          "texture": {
+            "bitmap": 0,
+            "clut": 0,
+            "collection": 18
+          },
+          "transferMode": 0
+        },
+        "edges": [
+          {
+            "direction": "forward",
+            "line": "89c46019-72c8-5271-a177-4bf207578789",
+            "side": "c26b0b4c-ce33-55cf-8a6a-283207e4a5e2"
+          },
+          {
+            "direction": "forward",
+            "line": "94f02f95-ab18-5fb4-b3f1-09737422eff2",
+            "side": "486f2ac2-ef9b-5122-b459-af6b40ed02fe"
+          },
+          {
+            "direction": "forward",
+            "line": "38ecfe18-a0a3-598a-81c7-f8612f0b2abd",
+            "side": "bb13c4ea-e06e-53f3-a815-140c47ba1863"
+          }
+        ],
+        "flags": 0,
+        "floor": {
+          "height": 0,
+          "light": "3e87f47a-0e51-5223-be81-269a8803afcf",
+          "origin": {
+            "x": 0,
+            "y": 0
+          },
+          "texture": {
+            "bitmap": 0,
+            "clut": 0,
+            "collection": 18
+          },
+          "transferMode": 0
+        },
+        "id": "3cd094fb-9720-5006-a213-e9ae0d4fb95c",
+        "media": "0809bc15-5cca-5fc3-91ab-dc622db77c43",
+        "permutation": {
+          "kind": "none"
+        },
+        "randomSound": "c25b8d57-d88f-582d-8739-b8abc5d2e6a1",
+        "type": 0
+      }
+    ]
+  },
+  "id": "4ebba24a-a976-5c3e-b7f2-8c086e274372",
+  "metadata": {
+    "entryPointFlags": 1,
+    "environment": {
+      "classicCode": 1,
+      "name": "Lava"
+    },
+    "environmentFlags": 0,
+    "missionFlags": 1,
+    "physicsModel": 1,
+    "songIndex": 0
+  },
+  "name": "FORMAT-1C Triangle",
+  "provenance": {
+    "bindings": [
+      {
+        "object": "3cd094fb-9720-5006-a213-e9ae0d4fb95c",
+        "offset": 0,
+        "ordinal": 0,
+        "raw": {
+          "sourceEnvironment": 1
+        },
+        "recordKind": "POLY",
+        "source": "f6e54fc3-e23e-5cb3-84f4-8a42e46474ab"
+      }
+    ],
+    "opaqueFragments": [],
+    "sources": [
+      {
+        "embeddedPath": null,
+        "fileName": "example.sce2",
+        "format": "marathon2",
+        "id": "f6e54fc3-e23e-5cb3-84f4-8a42e46474ab",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    ]
+  },
+  "surfaces": {
+    "sides": [
+      {
+        "ambientDelta": 0,
+        "controlPanel": null,
+        "flags": 0,
+        "id": "c26b0b4c-ce33-55cf-8a6a-283207e4a5e2",
+        "line": "89c46019-72c8-5271-a177-4bf207578789",
+        "polygon": "3cd094fb-9720-5006-a213-e9ae0d4fb95c",
+        "primary": {
+          "light": "3e87f47a-0e51-5223-be81-269a8803afcf",
+          "offset": {
+            "x": 0,
+            "y": 0
+          },
+          "texture": {
+            "bitmap": 0,
+            "clut": 0,
+            "collection": 18
+          },
+          "transferMode": 0
+        },
+        "secondary": null,
+        "transparent": null,
+        "type": "full"
+      },
+      {
+        "ambientDelta": 0,
+        "controlPanel": null,
+        "flags": 0,
+        "id": "486f2ac2-ef9b-5122-b459-af6b40ed02fe",
+        "line": "94f02f95-ab18-5fb4-b3f1-09737422eff2",
+        "polygon": "3cd094fb-9720-5006-a213-e9ae0d4fb95c",
+        "primary": {
+          "light": "3e87f47a-0e51-5223-be81-269a8803afcf",
+          "offset": {
+            "x": 0,
+            "y": 0
+          },
+          "texture": {
+            "bitmap": 0,
+            "clut": 0,
+            "collection": 18
+          },
+          "transferMode": 0
+        },
+        "secondary": null,
+        "transparent": null,
+        "type": "full"
+      },
+      {
+        "ambientDelta": 0,
+        "controlPanel": null,
+        "flags": 0,
+        "id": "bb13c4ea-e06e-53f3-a815-140c47ba1863",
+        "line": "38ecfe18-a0a3-598a-81c7-f8612f0b2abd",
+        "polygon": "3cd094fb-9720-5006-a213-e9ae0d4fb95c",
+        "primary": {
+          "light": "3e87f47a-0e51-5223-be81-269a8803afcf",
+          "offset": {
+            "x": 0,
+            "y": 0
+          },
+          "texture": {
+            "bitmap": 0,
+            "clut": 0,
+            "collection": 18
+          },
+          "transferMode": 0
+        },
+        "secondary": null,
+        "transparent": null,
+        "type": "full"
+      }
+    ]
+  },
+  "terminals": {
+    "items": [
+      {
+        "id": "53c4b143-36e7-572c-b0af-25a8ef383a80",
+        "linesPerPage": 22,
+        "sections": [
+          {
+            "flags": 0,
+            "id": "b26c4546-34c7-5d05-941f-7b1d7f159bfe",
+            "styles": [
+              {
+                "colorIndex": 0,
+                "face": 0,
+                "length": 11,
+                "start": 0
+              }
+            ],
+            "target": {
+              "kind": "none"
+            },
+            "text": "Schema test",
+            "type": 4
+          }
+        ]
+      }
+    ]
+  },
+  "world": {
+    "ambientSounds": [
+      {
+        "flags": 0,
+        "id": "0b1be1d2-c066-5da7-a2d4-be7cffde5a25",
+        "soundIndex": 0,
+        "volume": 128
+      }
+    ],
+    "annotations": [
+      {
+        "id": "e5ecb675-c274-5c1f-b8b5-d65f0ece70d5",
+        "location": {
+          "x": 256,
+          "y": 256
+        },
+        "polygon": "3cd094fb-9720-5006-a213-e9ae0d4fb95c",
+        "text": "FORMAT-1C",
+        "type": 0
+      }
+    ],
+    "itemPlacements": [
+      {
+        "flags": 0,
+        "id": "437f5111-722c-5fc1-b73a-04cdaa375341",
+        "initialCount": 0,
+        "maximumCount": 0,
+        "minimumCount": 0,
+        "randomChance": 0,
+        "randomCount": 0,
+        "slot": 0
+      }
+    ],
+    "lights": [
+      {
+        "flags": 1,
+        "id": "3e87f47a-0e51-5223-be81-269a8803afcf",
+        "phase": 0,
+        "states": {
+          "becomingActive": {
+            "deltaIntensity": 0,
+            "deltaPeriod": 0,
+            "function": 0,
+            "intensity": 65536,
+            "period": 30
+          },
+          "becomingInactive": {
+            "deltaIntensity": 0,
+            "deltaPeriod": 0,
+            "function": 0,
+            "intensity": 65536,
+            "period": 30
+          },
+          "primaryActive": {
+            "deltaIntensity": 0,
+            "deltaPeriod": 0,
+            "function": 0,
+            "intensity": 65536,
+            "period": 30
+          },
+          "primaryInactive": {
+            "deltaIntensity": 0,
+            "deltaPeriod": 0,
+            "function": 0,
+            "intensity": 65536,
+            "period": 30
+          },
+          "secondaryActive": {
+            "deltaIntensity": 0,
+            "deltaPeriod": 0,
+            "function": 0,
+            "intensity": 65536,
+            "period": 30
+          },
+          "secondaryInactive": {
+            "deltaIntensity": 0,
+            "deltaPeriod": 0,
+            "function": 0,
+            "intensity": 65536,
+            "period": 30
+          }
+        },
+        "tag": "a9dfafc6-bc09-5d34-b8c0-cd010405e069",
+        "type": 0
+      }
+    ],
+    "media": [
+      {
+        "appearance": {
+          "mode": "type-default",
+          "texture": null,
+          "transferMode": 0
+        },
+        "currentDirection": 0,
+        "currentMagnitude": 0,
+        "flags": 1,
+        "high": -200,
+        "id": "0809bc15-5cca-5fc3-91ab-dc622db77c43",
+        "light": "3e87f47a-0e51-5223-be81-269a8803afcf",
+        "low": -250,
+        "minimumLightIntensity": 0,
+        "origin": {
+          "x": 0,
+          "y": 0
+        },
+        "type": 1
+      }
+    ],
+    "objects": [
+      {
+        "facing": 0,
+        "flags": 0,
+        "id": "61aa74a1-905a-5c6a-9d59-e930ccefd4f1",
+        "kindIndex": 0,
+        "polygon": "3cd094fb-9720-5006-a213-e9ae0d4fb95c",
+        "position": {
+          "x": 128,
+          "y": 128,
+          "z": 0
+        },
+        "type": 3
+      }
+    ],
+    "platforms": [
+      {
+        "delay": 30,
+        "flags": 0,
+        "id": "7dfa291a-698d-5cab-8998-a5f86cde3e28",
+        "maximumHeight": 1024,
+        "minimumHeight": 0,
+        "polygon": "3cd094fb-9720-5006-a213-e9ae0d4fb95c",
+        "speed": 64,
+        "tag": "a9dfafc6-bc09-5d34-b8c0-cd010405e069",
+        "type": 0
+      }
+    ],
+    "randomSounds": [
+      {
+        "deltaDirection": 0,
+        "deltaPeriod": 0,
+        "deltaPitch": 0,
+        "deltaVolume": 0,
+        "direction": 0,
+        "flags": 0,
+        "id": "c25b8d57-d88f-582d-8739-b8abc5d2e6a1",
+        "period": 300,
+        "phase": 0,
+        "pitch": 65536,
+        "soundIndex": 0,
+        "volume": 128
+      }
+    ],
+    "tags": [
+      {
+        "id": "a9dfafc6-bc09-5d34-b8c0-cd010405e069",
+        "number": 1
+      }
+    ]
+  }
+}

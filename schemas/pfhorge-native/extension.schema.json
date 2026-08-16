@@ -1,0 +1,38 @@
+{
+  "$id": "urn:pfhorge:schema:extension-declaration:1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "definition": {
+      "type": "string"
+    },
+    "id": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]+$",
+      "type": "string"
+    },
+    "requiredForRead": {
+      "type": "boolean"
+    },
+    "requiredForWrite": {
+      "type": "boolean"
+    },
+    "resources": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "version": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "version",
+    "requiredForRead",
+    "requiredForWrite"
+  ],
+  "title": "Pfhorge Extension Declaration",
+  "type": "object"
+}

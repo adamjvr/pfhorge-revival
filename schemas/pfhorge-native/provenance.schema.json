@@ -1,0 +1,139 @@
+{
+  "$defs": {
+    "binding": {
+      "additionalProperties": false,
+      "properties": {
+        "object": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "offset": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "ordinal": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "raw": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "recordKind": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        }
+      },
+      "required": [
+        "object",
+        "source",
+        "recordKind"
+      ],
+      "type": "object"
+    },
+    "fragment": {
+      "additionalProperties": false,
+      "properties": {
+        "ordinal": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/unsignedSafeInteger"
+        },
+        "path": {
+          "type": "string"
+        },
+        "preservationClass": {
+          "enum": [
+            "safe_passthrough",
+            "safe_if_structure_unchanged",
+            "requires_codec_support",
+            "invalidated"
+          ]
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "tag": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "tag",
+        "ordinal",
+        "path",
+        "sha256",
+        "preservationClass"
+      ],
+      "type": "object"
+    },
+    "source": {
+      "additionalProperties": false,
+      "properties": {
+        "embeddedPath": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fileName": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "id": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "format",
+        "fileName",
+        "sha256"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "urn:pfhorge:schema:provenance:1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "bindings": {
+      "items": {
+        "$ref": "#/$defs/binding"
+      },
+      "type": "array"
+    },
+    "opaqueFragments": {
+      "items": {
+        "$ref": "#/$defs/fragment"
+      },
+      "type": "array"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/source"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "sources",
+    "bindings",
+    "opaqueFragments"
+  ],
+  "title": "Pfhorge Native Provenance",
+  "type": "object"
+}

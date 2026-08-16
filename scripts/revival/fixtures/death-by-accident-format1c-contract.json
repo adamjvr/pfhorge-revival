@@ -1,0 +1,20 @@
+{
+  "expected": {
+    "environmentClassicCode": 1,
+    "environmentName": "Lava",
+    "landscapeCollection": 27,
+    "lineCount": 570,
+    "mediaType": 1,
+    "polygonCount": 186,
+    "sideCount": 530,
+    "structuralCollection": 18
+  },
+  "format": "org.pfhorge.format1c.regression-contract.v1",
+  "levelName": "Death by accident",
+  "negativeLegacyFixture": {
+    "environmentClassicCode": 4,
+    "meaning": "Legacy merge/import metadata mismatch; do not remap canonical surfaces on load.",
+    "structuralCollection": 18
+  },
+  "sourceSha256": "83f165eeded78a01be938e54559c69401c1ab9019881ef734c4c53537304b9e9"
+}

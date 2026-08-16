@@ -1,0 +1,180 @@
+{
+  "$defs": {
+    "layer": {
+      "additionalProperties": false,
+      "properties": {
+        "color": {
+          "oneOf": [
+            {
+              "$ref": "urn:pfhorge:schema:common:1#/$defs/color"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "members": {
+          "items": {
+            "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "color",
+        "members"
+      ],
+      "type": "object"
+    },
+    "lineOverride": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "landscape": {
+          "type": "boolean"
+        },
+        "line": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "noSides": {
+          "type": "boolean"
+        },
+        "solid": {
+          "type": "boolean"
+        },
+        "transparent": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "line",
+        "enabled",
+        "solid",
+        "transparent",
+        "landscape",
+        "noSides"
+      ],
+      "type": "object"
+    },
+    "noteGroup": {
+      "additionalProperties": false,
+      "properties": {
+        "color": {
+          "oneOf": [
+            {
+              "$ref": "urn:pfhorge:schema:common:1#/$defs/color"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "members": {
+          "items": {
+            "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "name": {
+          "type": "string"
+        },
+        "visible": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "color",
+        "visible",
+        "members"
+      ],
+      "type": "object"
+    },
+    "optionValue": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "$id": "urn:pfhorge:schema:editor:1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "currentLayer": {
+      "$ref": "urn:pfhorge:schema:common:1#/$defs/nullableUuid"
+    },
+    "layers": {
+      "items": {
+        "$ref": "#/$defs/layer"
+      },
+      "type": "array"
+    },
+    "levelOptions": {
+      "additionalProperties": {
+        "$ref": "#/$defs/optionValue"
+      },
+      "type": "object"
+    },
+    "lineOverrides": {
+      "items": {
+        "$ref": "#/$defs/lineOverride"
+      },
+      "type": "array"
+    },
+    "names": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "propertyNames": {
+        "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+      },
+      "type": "object"
+    },
+    "noteGroups": {
+      "items": {
+        "$ref": "#/$defs/noteGroup"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "layers",
+    "noteGroups",
+    "names",
+    "lineOverrides",
+    "currentLayer",
+    "levelOptions"
+  ],
+  "title": "Pfhorge Native Editor Metadata",
+  "type": "object"
+}

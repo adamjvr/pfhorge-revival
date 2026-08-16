@@ -1,0 +1,30 @@
+{
+  "format": "org.pfhorge.format1b.required-semantics.v1",
+  "required": [
+    {
+      "class": "LELevelData",
+      "field": "environment_code",
+      "role": "authoritative_game"
+    },
+    {
+      "class": "LEPolygon",
+      "field": "floor_texture",
+      "role": "authoritative_game"
+    },
+    {
+      "class": "LEPolygon",
+      "field": "adjacent_polygon_indexes",
+      "role": "derived"
+    },
+    {
+      "class": "LESide",
+      "field": "primary_texture",
+      "role": "authoritative_game"
+    },
+    {
+      "class": "PhMedia",
+      "field": "height",
+      "role": "derived"
+    }
+  ]
+}

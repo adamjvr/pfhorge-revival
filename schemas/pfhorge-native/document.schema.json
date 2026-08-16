@@ -1,0 +1,67 @@
+{
+  "$id": "urn:pfhorge:schema:document:1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "const": "urn:pfhorge:schema:document:1"
+    },
+    "extensions": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "level",
+        "scenario"
+      ]
+    },
+    "levels": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "pattern": "^levels/[0-9a-f-]+\\.json$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "path"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "type": "object"
+    },
+    "title": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "$schema",
+    "id",
+    "kind",
+    "levels",
+    "extensions"
+  ],
+  "title": "Pfhorge Native Document",
+  "type": "object"
+}

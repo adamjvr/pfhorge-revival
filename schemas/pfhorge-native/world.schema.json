@@ -1,0 +1,510 @@
+{
+  "$defs": {
+    "ambientSound": {
+      "additionalProperties": false,
+      "properties": {
+        "flags": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/unsignedSafeInteger"
+        },
+        "id": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "soundIndex": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        },
+        "volume": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        }
+      },
+      "required": [
+        "id",
+        "flags",
+        "soundIndex",
+        "volume"
+      ],
+      "type": "object"
+    },
+    "annotation": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "location": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/point2"
+        },
+        "polygon": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/nullableUuid"
+        },
+        "text": {
+          "type": "string"
+        },
+        "type": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "location",
+        "polygon",
+        "text"
+      ],
+      "type": "object"
+    },
+    "itemPlacement": {
+      "additionalProperties": false,
+      "properties": {
+        "flags": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/unsignedSafeInteger"
+        },
+        "id": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "initialCount": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        },
+        "maximumCount": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        },
+        "minimumCount": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        },
+        "randomChance": {
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "randomCount": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        },
+        "slot": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/unsignedSafeInteger"
+        }
+      },
+      "required": [
+        "id",
+        "slot",
+        "flags",
+        "initialCount",
+        "minimumCount",
+        "maximumCount",
+        "randomCount",
+        "randomChance"
+      ],
+      "type": "object"
+    },
+    "light": {
+      "additionalProperties": false,
+      "properties": {
+        "flags": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/unsignedSafeInteger"
+        },
+        "id": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "phase": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        },
+        "states": {
+          "additionalProperties": false,
+          "properties": {
+            "becomingActive": {
+              "$ref": "#/$defs/lightFunction"
+            },
+            "becomingInactive": {
+              "$ref": "#/$defs/lightFunction"
+            },
+            "primaryActive": {
+              "$ref": "#/$defs/lightFunction"
+            },
+            "primaryInactive": {
+              "$ref": "#/$defs/lightFunction"
+            },
+            "secondaryActive": {
+              "$ref": "#/$defs/lightFunction"
+            },
+            "secondaryInactive": {
+              "$ref": "#/$defs/lightFunction"
+            }
+          },
+          "required": [
+            "primaryActive",
+            "secondaryActive",
+            "becomingActive",
+            "primaryInactive",
+            "secondaryInactive",
+            "becomingInactive"
+          ],
+          "type": "object"
+        },
+        "tag": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/nullableUuid"
+        },
+        "type": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "flags",
+        "phase",
+        "states",
+        "tag"
+      ],
+      "type": "object"
+    },
+    "lightFunction": {
+      "additionalProperties": false,
+      "properties": {
+        "deltaIntensity": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        },
+        "deltaPeriod": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        },
+        "function": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        },
+        "intensity": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        },
+        "period": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        }
+      },
+      "required": [
+        "function",
+        "period",
+        "deltaPeriod",
+        "intensity",
+        "deltaIntensity"
+      ],
+      "type": "object"
+    },
+    "mapObject": {
+      "additionalProperties": false,
+      "properties": {
+        "facing": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/angle"
+        },
+        "flags": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/unsignedSafeInteger"
+        },
+        "id": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "kindIndex": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        },
+        "polygon": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/nullableUuid"
+        },
+        "position": {
+          "additionalProperties": false,
+          "properties": {
+            "x": {
+              "$ref": "urn:pfhorge:schema:common:1#/$defs/worldDistance"
+            },
+            "y": {
+              "$ref": "urn:pfhorge:schema:common:1#/$defs/worldDistance"
+            },
+            "z": {
+              "$ref": "urn:pfhorge:schema:common:1#/$defs/worldDistance"
+            }
+          },
+          "required": [
+            "x",
+            "y",
+            "z"
+          ],
+          "type": "object"
+        },
+        "type": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "kindIndex",
+        "facing",
+        "polygon",
+        "position",
+        "flags"
+      ],
+      "type": "object"
+    },
+    "media": {
+      "additionalProperties": false,
+      "properties": {
+        "appearance": {
+          "$ref": "#/$defs/mediaAppearance"
+        },
+        "currentDirection": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/angle"
+        },
+        "currentMagnitude": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/worldDistance"
+        },
+        "flags": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/unsignedSafeInteger"
+        },
+        "high": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/worldDistance"
+        },
+        "id": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "light": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/nullableUuid"
+        },
+        "low": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/worldDistance"
+        },
+        "minimumLightIntensity": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        },
+        "origin": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/point2"
+        },
+        "type": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "flags",
+        "light",
+        "currentDirection",
+        "currentMagnitude",
+        "low",
+        "high",
+        "origin",
+        "minimumLightIntensity",
+        "appearance"
+      ],
+      "type": "object"
+    },
+    "mediaAppearance": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "type-default",
+            "explicit"
+          ]
+        },
+        "texture": {
+          "oneOf": [
+            {
+              "$ref": "urn:pfhorge:schema:common:1#/$defs/textureRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "transferMode": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        }
+      },
+      "required": [
+        "mode",
+        "texture",
+        "transferMode"
+      ],
+      "type": "object"
+    },
+    "platform": {
+      "additionalProperties": false,
+      "properties": {
+        "delay": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        },
+        "flags": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/unsignedSafeInteger"
+        },
+        "id": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "maximumHeight": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/worldDistance"
+        },
+        "minimumHeight": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/worldDistance"
+        },
+        "polygon": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "speed": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/worldDistance"
+        },
+        "tag": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/nullableUuid"
+        },
+        "type": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "speed",
+        "delay",
+        "maximumHeight",
+        "minimumHeight",
+        "flags",
+        "polygon",
+        "tag"
+      ],
+      "type": "object"
+    },
+    "randomSound": {
+      "additionalProperties": false,
+      "properties": {
+        "deltaDirection": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/angle"
+        },
+        "deltaPeriod": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        },
+        "deltaPitch": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        },
+        "deltaVolume": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        },
+        "direction": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/angle"
+        },
+        "flags": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/unsignedSafeInteger"
+        },
+        "id": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "period": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        },
+        "phase": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        },
+        "pitch": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        },
+        "soundIndex": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        },
+        "volume": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        }
+      },
+      "required": [
+        "id",
+        "flags",
+        "soundIndex",
+        "volume",
+        "deltaVolume",
+        "period",
+        "deltaPeriod",
+        "direction",
+        "deltaDirection",
+        "pitch",
+        "deltaPitch",
+        "phase"
+      ],
+      "type": "object"
+    },
+    "tag": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "number": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        }
+      },
+      "required": [
+        "id",
+        "number"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "urn:pfhorge:schema:world:1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "ambientSounds": {
+      "items": {
+        "$ref": "#/$defs/ambientSound"
+      },
+      "type": "array"
+    },
+    "annotations": {
+      "items": {
+        "$ref": "#/$defs/annotation"
+      },
+      "type": "array"
+    },
+    "itemPlacements": {
+      "items": {
+        "$ref": "#/$defs/itemPlacement"
+      },
+      "type": "array"
+    },
+    "lights": {
+      "items": {
+        "$ref": "#/$defs/light"
+      },
+      "type": "array"
+    },
+    "media": {
+      "items": {
+        "$ref": "#/$defs/media"
+      },
+      "type": "array"
+    },
+    "objects": {
+      "items": {
+        "$ref": "#/$defs/mapObject"
+      },
+      "type": "array"
+    },
+    "platforms": {
+      "items": {
+        "$ref": "#/$defs/platform"
+      },
+      "type": "array"
+    },
+    "randomSounds": {
+      "items": {
+        "$ref": "#/$defs/randomSound"
+      },
+      "type": "array"
+    },
+    "tags": {
+      "items": {
+        "$ref": "#/$defs/tag"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "lights",
+    "media",
+    "platforms",
+    "objects",
+    "itemPlacements",
+    "ambientSounds",
+    "randomSounds",
+    "tags",
+    "annotations"
+  ],
+  "title": "Pfhorge Canonical World / Behavior",
+  "type": "object"
+}

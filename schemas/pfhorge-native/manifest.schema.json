@@ -1,0 +1,81 @@
+{
+  "$defs": {
+    "packagePath": {
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\).+$",
+      "type": "string"
+    }
+  },
+  "$id": "urn:pfhorge:schema:manifest:1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "const": "urn:pfhorge:schema:manifest:1"
+    },
+    "document": {
+      "$ref": "#/$defs/packagePath"
+    },
+    "extensions": {
+      "default": [],
+      "items": {
+        "$ref": "extension.schema.json"
+      },
+      "type": "array"
+    },
+    "format": {
+      "const": "org.pfhorge.native"
+    },
+    "formatVersion": {
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "level",
+        "scenario"
+      ]
+    },
+    "resources": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "mediaType": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "path": {
+            "$ref": "#/$defs/packagePath"
+          },
+          "role": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "mediaType",
+          "sha256"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "$schema",
+    "format",
+    "formatVersion",
+    "kind",
+    "document",
+    "extensions",
+    "resources"
+  ],
+  "title": "Pfhorge Native Package Manifest",
+  "type": "object"
+}

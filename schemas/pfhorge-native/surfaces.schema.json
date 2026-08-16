@@ -1,0 +1,142 @@
+{
+  "$defs": {
+    "controlPanel": {
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/semanticTarget"
+        },
+        "type": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        }
+      },
+      "required": [
+        "type",
+        "target"
+      ],
+      "type": "object"
+    },
+    "side": {
+      "additionalProperties": false,
+      "properties": {
+        "ambientDelta": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        },
+        "controlPanel": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/controlPanel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "flags": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/unsignedSafeInteger"
+        },
+        "id": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "line": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "polygon": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "primary": {
+          "$ref": "#/$defs/surfaceLayer"
+        },
+        "secondary": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/surfaceLayer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "transparent": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/surfaceLayer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "type": {
+          "enum": [
+            "full",
+            "high",
+            "low",
+            "composite",
+            "split"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "line",
+        "polygon",
+        "type",
+        "flags",
+        "primary",
+        "secondary",
+        "transparent",
+        "controlPanel",
+        "ambientDelta"
+      ],
+      "type": "object"
+    },
+    "surfaceLayer": {
+      "additionalProperties": false,
+      "properties": {
+        "light": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/nullableUuid"
+        },
+        "offset": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/point2"
+        },
+        "texture": {
+          "oneOf": [
+            {
+              "$ref": "urn:pfhorge:schema:common:1#/$defs/textureRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "transferMode": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        }
+      },
+      "required": [
+        "texture",
+        "offset",
+        "transferMode",
+        "light"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "urn:pfhorge:schema:surfaces:1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "sides": {
+      "items": {
+        "$ref": "#/$defs/side"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "sides"
+  ],
+  "title": "Pfhorge Canonical Surfaces",
+  "type": "object"
+}

@@ -1,0 +1,199 @@
+{
+  "$defs": {
+    "angle": {
+      "$ref": "#/$defs/safeInteger"
+    },
+    "color": {
+      "additionalProperties": false,
+      "properties": {
+        "components": {
+          "maxItems": 4,
+          "minItems": 4,
+          "prefixItems": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          ],
+          "type": "array"
+        },
+        "space": {
+          "enum": [
+            "srgb"
+          ]
+        }
+      },
+      "required": [
+        "space",
+        "components"
+      ],
+      "type": "object"
+    },
+    "nullableUuid": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "point2": {
+      "additionalProperties": false,
+      "properties": {
+        "x": {
+          "$ref": "#/$defs/worldDistance"
+        },
+        "y": {
+          "$ref": "#/$defs/worldDistance"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "safeInteger": {
+      "maximum": 9007199254740991,
+      "minimum": -9007199254740991,
+      "type": "integer"
+    },
+    "semanticTarget": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "polygon",
+                  "light",
+                  "platform",
+                  "terminal",
+                  "object"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "target"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "integer",
+                  "tag",
+                  "level",
+                  "sound",
+                  "movie",
+                  "track",
+                  "picture",
+                  "camera",
+                  "duration"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "value"
+            ]
+          }
+        }
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "none",
+            "integer",
+            "tag",
+            "light",
+            "platform",
+            "polygon",
+            "terminal",
+            "level",
+            "object",
+            "sound",
+            "movie",
+            "track",
+            "picture",
+            "camera",
+            "duration"
+          ]
+        },
+        "target": {
+          "$ref": "#/$defs/uuid"
+        },
+        "value": {
+          "$ref": "#/$defs/safeInteger"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "sourceHint": {
+      "additionalProperties": true,
+      "type": "object"
+    },
+    "textureRef": {
+      "additionalProperties": false,
+      "properties": {
+        "bitmap": {
+          "$ref": "#/$defs/unsignedSafeInteger"
+        },
+        "clut": {
+          "$ref": "#/$defs/unsignedSafeInteger"
+        },
+        "collection": {
+          "$ref": "#/$defs/unsignedSafeInteger"
+        }
+      },
+      "required": [
+        "collection",
+        "bitmap"
+      ],
+      "type": "object"
+    },
+    "unsignedSafeInteger": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "uuid": {
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "type": "string"
+    },
+    "worldDistance": {
+      "$ref": "#/$defs/safeInteger"
+    }
+  },
+  "$id": "urn:pfhorge:schema:common:1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Pfhorge Native Common Types"
+}

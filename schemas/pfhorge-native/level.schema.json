@@ -1,0 +1,121 @@
+{
+  "$id": "urn:pfhorge:schema:level:1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "const": "urn:pfhorge:schema:level:1"
+    },
+    "editor": {
+      "$ref": "urn:pfhorge:schema:editor:1"
+    },
+    "extensions": {
+      "additionalProperties": true,
+      "type": "object"
+    },
+    "geometry": {
+      "$ref": "urn:pfhorge:schema:geometry:1"
+    },
+    "id": {
+      "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+    },
+    "metadata": {
+      "additionalProperties": false,
+      "properties": {
+        "entryPointFlags": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "environment": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "classicCode": {
+                  "maximum": 4,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "classicCode"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "environmentFlags": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "missionFlags": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "physicsModel": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "songIndex": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "environment",
+        "physicsModel",
+        "songIndex",
+        "missionFlags",
+        "environmentFlags",
+        "entryPointFlags"
+      ],
+      "type": "object"
+    },
+    "name": {
+      "type": "string"
+    },
+    "provenance": {
+      "$ref": "urn:pfhorge:schema:provenance:1"
+    },
+    "surfaces": {
+      "$ref": "urn:pfhorge:schema:surfaces:1"
+    },
+    "terminals": {
+      "$ref": "urn:pfhorge:schema:terminals:1"
+    },
+    "world": {
+      "$ref": "urn:pfhorge:schema:world:1"
+    }
+  },
+  "required": [
+    "$schema",
+    "id",
+    "name",
+    "metadata",
+    "geometry",
+    "surfaces",
+    "world",
+    "terminals",
+    "editor",
+    "extensions",
+    "provenance"
+  ],
+  "title": "Pfhorge Canonical Level Envelope (FORMAT-1C)",
+  "type": "object"
+}

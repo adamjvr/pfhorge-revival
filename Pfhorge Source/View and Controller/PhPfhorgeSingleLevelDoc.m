@@ -32,6 +32,9 @@
 #import "ScenarioResources.h"
 #import "Resource.h"
 
+// FORMAT-2A native .pfhlev transport bridge
+#import "../Format/Native/PfhorgeNativeDocumentCodec.inc"
+
 NSString *const PhScenarioDeallocatingNotification = @"PhScenarioDeallocatingNotification";
 NSString *const PhScenarioLevelNamesChangedNotification = @"PhScenarioLevelNamesChangedNotification";
 
@@ -154,6 +157,14 @@ NSString *const PhScenarioLevelNamesChangedNotification = @"PhScenarioLevelNames
     ///NSLog(@"*** Subclassed LEMap - dataRepresentationOfType ***");
     
     NSMutableData *entireMapData = [[NSMutableData alloc] initWithCapacity:(500 * 1000)];
+    // FORMAT-2A: all non-Marathon Pfhorge saves migrate to the native ZIP package.
+    if (shouldExportToMarathonFormat == NO && ![typeName isEqualToString:@"org.bungie.source.map"]) {
+        NSData *nativePackage = PfhorgeNative2ACreatePackage(self, theLevel, outError);
+        if (nativePackage == nil) return nil;
+        cameFromMarathonFormatedFile = NO;
+        return nativePackage;
+    }
+
     
     if (shouldExportToMarathonFormat == YES || [typeName isEqualToString:@"org.bungie.source.map"]) {
         NSData *maraMap = [LEMapData convertLevelToDataObject:theLevel error:outError];
@@ -191,6 +202,30 @@ NSString *const PhScenarioLevelNamesChangedNotification = @"PhScenarioLevelNames
     
     //short version, dataVersion;
     BOOL loadedOk = NO;
+    // FORMAT-2A: native and legacy documents share .pfhlev, so probe ZIP first.
+    if (PfhorgeNative2ADataLooksLikePackage(data)) {
+        LELevelData *nativeLevel = PfhorgeNative2ALoadLevel(data, self, outError);
+        if (nativeLevel == nil) return NO;
+        theRawMapData = nil;
+        theLevel = nativeLevel;
+        cameFromMarathonFormatedFile = NO;
+        [theLevel updateCounts];
+        [theLevel setLevelDocument:self];
+        [theLevel setMyUndoManager:[self undoManager]];
+        [theLevel setUpArrayPointersForEveryObject];
+        [theLevel setupDefaultObjects];
+        NSLog(@"Loaded Pfhorge Native FORMAT-2A package.");
+        return YES;
+    }
+    if (data.length < 10) {
+        if (outError) {
+            *outError = [NSError errorWithDomain:NSCocoaErrorDomain
+                                             code:NSFileReadCorruptFileError
+                                         userInfo:@{NSLocalizedFailureReasonErrorKey: @"Pfhorge level is truncated."}];
+        }
+        return NO;
+    }
+
     
     const short theVersionNumber = currentVersionOfPfhorgeLevelData;
     const short oldVersionNumber = oldVersionOfPfhorgeLevelData;

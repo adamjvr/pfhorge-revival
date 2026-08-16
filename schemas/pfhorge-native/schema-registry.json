@@ -1,0 +1,37 @@
+{
+  "format": "org.pfhorge.native.schema-registry.v1",
+  "schemas": [
+    {
+      "id": "urn:pfhorge:schema:common:1",
+      "path": "common.schema.json"
+    },
+    {
+      "id": "urn:pfhorge:schema:geometry:1",
+      "path": "geometry.schema.json"
+    },
+    {
+      "id": "urn:pfhorge:schema:surfaces:1",
+      "path": "surfaces.schema.json"
+    },
+    {
+      "id": "urn:pfhorge:schema:world:1",
+      "path": "world.schema.json"
+    },
+    {
+      "id": "urn:pfhorge:schema:terminals:1",
+      "path": "terminals.schema.json"
+    },
+    {
+      "id": "urn:pfhorge:schema:editor:1",
+      "path": "editor.schema.json"
+    },
+    {
+      "id": "urn:pfhorge:schema:provenance:1",
+      "path": "provenance.schema.json"
+    },
+    {
+      "id": "urn:pfhorge:schema:level:1",
+      "path": "level.schema.json"
+    }
+  ]
+}

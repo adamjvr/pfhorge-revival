@@ -1,0 +1,188 @@
+{
+  "$defs": {
+    "line": {
+      "additionalProperties": false,
+      "properties": {
+        "endPoint": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "flags": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/unsignedSafeInteger"
+        },
+        "id": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "startPoint": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        }
+      },
+      "required": [
+        "id",
+        "startPoint",
+        "endPoint",
+        "flags"
+      ],
+      "type": "object"
+    },
+    "plane": {
+      "additionalProperties": false,
+      "properties": {
+        "height": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/worldDistance"
+        },
+        "light": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/nullableUuid"
+        },
+        "origin": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/point2"
+        },
+        "texture": {
+          "oneOf": [
+            {
+              "$ref": "urn:pfhorge:schema:common:1#/$defs/textureRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "transferMode": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        }
+      },
+      "required": [
+        "height",
+        "texture",
+        "transferMode",
+        "origin",
+        "light"
+      ],
+      "type": "object"
+    },
+    "point": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "x": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/worldDistance"
+        },
+        "y": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/worldDistance"
+        }
+      },
+      "required": [
+        "id",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "polygon": {
+      "additionalProperties": false,
+      "properties": {
+        "ambientSound": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/nullableUuid"
+        },
+        "ceiling": {
+          "$ref": "#/$defs/plane"
+        },
+        "edges": {
+          "items": {
+            "$ref": "#/$defs/polygonEdge"
+          },
+          "minItems": 3,
+          "type": "array"
+        },
+        "flags": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/unsignedSafeInteger"
+        },
+        "floor": {
+          "$ref": "#/$defs/plane"
+        },
+        "id": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "media": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/nullableUuid"
+        },
+        "permutation": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/semanticTarget"
+        },
+        "randomSound": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/nullableUuid"
+        },
+        "type": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "flags",
+        "permutation",
+        "edges",
+        "floor",
+        "ceiling",
+        "media",
+        "ambientSound",
+        "randomSound"
+      ],
+      "type": "object"
+    },
+    "polygonEdge": {
+      "additionalProperties": false,
+      "properties": {
+        "direction": {
+          "enum": [
+            "forward",
+            "reverse"
+          ]
+        },
+        "line": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "side": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/nullableUuid"
+        }
+      },
+      "required": [
+        "line",
+        "side",
+        "direction"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "urn:pfhorge:schema:geometry:1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "lines": {
+      "items": {
+        "$ref": "#/$defs/line"
+      },
+      "type": "array"
+    },
+    "points": {
+      "items": {
+        "$ref": "#/$defs/point"
+      },
+      "type": "array"
+    },
+    "polygons": {
+      "items": {
+        "$ref": "#/$defs/polygon"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "points",
+    "lines",
+    "polygons"
+  ],
+  "title": "Pfhorge Canonical Geometry",
+  "type": "object"
+}

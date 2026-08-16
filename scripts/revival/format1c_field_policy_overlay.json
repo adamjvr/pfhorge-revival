@@ -1,0 +1,981 @@
+{
+  "rules": [
+    {
+      "canonicalTransform": "none",
+      "pattern": "LELevelData.cDefaultSide",
+      "rationale": "Editor construction default side.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "LELevelData.ccDefaultSide",
+      "rationale": "Editor construction default side.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "LELevelData.cHasDefaultSide",
+      "rationale": "Editor default-side bookkeeping.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "LELevelData.ccHasDefaultSide",
+      "rationale": "Editor default-side bookkeeping.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "typed-editor-options",
+      "pattern": "LELevelData.levelOptions",
+      "rationale": "Per-level Pfhorge grid/snap/object-view editor options.",
+      "role": "authoritative_editor",
+      "roundTripPolicy": "preserve_editor",
+      "storageDomain": "editor"
+    },
+    {
+      "canonicalTransform": "source-index",
+      "pattern": "LELine.p1",
+      "rationale": "Legacy/source array index; canonical topology uses UUID relationships.",
+      "role": "source_provenance",
+      "roundTripPolicy": "preserve_raw_if_present",
+      "storageDomain": "provenance"
+    },
+    {
+      "canonicalTransform": "source-index",
+      "pattern": "LELine.p2",
+      "rationale": "Legacy/source array index; canonical topology uses UUID relationships.",
+      "role": "source_provenance",
+      "roundTripPolicy": "preserve_raw_if_present",
+      "storageDomain": "provenance"
+    },
+    {
+      "canonicalTransform": "source-index",
+      "pattern": "LELine.clockwisePolygonIndex",
+      "rationale": "Legacy/source array index; canonical topology uses UUID relationships.",
+      "role": "source_provenance",
+      "roundTripPolicy": "preserve_raw_if_present",
+      "storageDomain": "provenance"
+    },
+    {
+      "canonicalTransform": "source-index",
+      "pattern": "LELine.conterclockwisePolygonIndex",
+      "rationale": "Legacy/source array index; canonical topology uses UUID relationships.",
+      "role": "source_provenance",
+      "roundTripPolicy": "preserve_raw_if_present",
+      "storageDomain": "provenance"
+    },
+    {
+      "canonicalTransform": "uuid-reference",
+      "pattern": "LELine.mapPoint1",
+      "rationale": "Canonical line endpoint relationship.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "geometry"
+    },
+    {
+      "canonicalTransform": "uuid-reference",
+      "pattern": "LELine.mapPoint2",
+      "rationale": "Canonical line endpoint relationship.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "geometry"
+    },
+    {
+      "canonicalTransform": "bitset",
+      "pattern": "LELine.flags",
+      "rationale": "Marathon line flags are explicit map semantics and unknown bits must survive.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "geometry"
+    },
+    {
+      "canonicalTransform": "geometry-length",
+      "pattern": "LELine._Length",
+      "rationale": "Recomputable/precalculated line field; raw source may be retained as provenance.",
+      "role": "derived",
+      "roundTripPolicy": "preserve_raw_if_present",
+      "storageDomain": "provenance"
+    },
+    {
+      "canonicalTransform": "geometry-angle",
+      "pattern": "LELine._Angle",
+      "rationale": "Recomputable/precalculated line field; raw source may be retained as provenance.",
+      "role": "derived",
+      "roundTripPolicy": "preserve_raw_if_present",
+      "storageDomain": "provenance"
+    },
+    {
+      "canonicalTransform": "geometry-azimuth",
+      "pattern": "LELine._Azimuth",
+      "rationale": "Recomputable/precalculated line field; raw source may be retained as provenance.",
+      "role": "derived",
+      "roundTripPolicy": "preserve_raw_if_present",
+      "storageDomain": "provenance"
+    },
+    {
+      "canonicalTransform": "adjacent-height-precalc",
+      "pattern": "LELine.highestAdjacentFloor",
+      "rationale": "Recomputable/precalculated line field; raw source may be retained as provenance.",
+      "role": "derived",
+      "roundTripPolicy": "preserve_raw_if_present",
+      "storageDomain": "provenance"
+    },
+    {
+      "canonicalTransform": "adjacent-height-precalc",
+      "pattern": "LELine.lowestAdjacentCeiling",
+      "rationale": "Recomputable/precalculated line field; raw source may be retained as provenance.",
+      "role": "derived",
+      "roundTripPolicy": "preserve_raw_if_present",
+      "storageDomain": "provenance"
+    },
+    {
+      "canonicalTransform": "derive-from-polygon-edges",
+      "pattern": "LELine.clockwisePolygonSideObject",
+      "rationale": "Canonical owner/side relationships derive from ordered polygon edges; preserve inconsistent legacy raw relation only as provenance.",
+      "role": "derived",
+      "roundTripPolicy": "preserve_raw_if_present",
+      "storageDomain": "provenance"
+    },
+    {
+      "canonicalTransform": "derive-from-polygon-edges",
+      "pattern": "LELine.counterclockwisePolygonSideObject",
+      "rationale": "Canonical owner/side relationships derive from ordered polygon edges; preserve inconsistent legacy raw relation only as provenance.",
+      "role": "derived",
+      "roundTripPolicy": "preserve_raw_if_present",
+      "storageDomain": "provenance"
+    },
+    {
+      "canonicalTransform": "derive-from-polygon-edges",
+      "pattern": "LELine.clockwisePolygon",
+      "rationale": "Canonical owner/side relationships derive from ordered polygon edges; preserve inconsistent legacy raw relation only as provenance.",
+      "role": "derived",
+      "roundTripPolicy": "preserve_raw_if_present",
+      "storageDomain": "provenance"
+    },
+    {
+      "canonicalTransform": "derive-from-polygon-edges",
+      "pattern": "LELine.conterclockwisePolygon",
+      "rationale": "Canonical owner/side relationships derive from ordered polygon edges; preserve inconsistent legacy raw relation only as provenance.",
+      "role": "derived",
+      "roundTripPolicy": "preserve_raw_if_present",
+      "storageDomain": "provenance"
+    },
+    {
+      "canonicalTransform": "line-override-setting",
+      "pattern": "LELine.permanentSolidLine",
+      "rationale": "Pfhorge-native override controlling automatic line/side calculation.",
+      "role": "authoritative_editor",
+      "roundTripPolicy": "preserve_editor",
+      "storageDomain": "editor"
+    },
+    {
+      "canonicalTransform": "line-override-setting",
+      "pattern": "LELine.permanentLandscapeLine",
+      "rationale": "Pfhorge-native override controlling automatic line/side calculation.",
+      "role": "authoritative_editor",
+      "roundTripPolicy": "preserve_editor",
+      "storageDomain": "editor"
+    },
+    {
+      "canonicalTransform": "line-override-setting",
+      "pattern": "LELine.permanentTransparentLine",
+      "rationale": "Pfhorge-native override controlling automatic line/side calculation.",
+      "role": "authoritative_editor",
+      "roundTripPolicy": "preserve_editor",
+      "storageDomain": "editor"
+    },
+    {
+      "canonicalTransform": "line-override-setting",
+      "pattern": "LELine.permanentNoSides",
+      "rationale": "Pfhorge-native override controlling automatic line/side calculation.",
+      "role": "authoritative_editor",
+      "roundTripPolicy": "preserve_editor",
+      "storageDomain": "editor"
+    },
+    {
+      "canonicalTransform": "line-override-setting",
+      "pattern": "LELine.usePermanentSettings",
+      "rationale": "Pfhorge-native override controlling automatic line/side calculation.",
+      "role": "authoritative_editor",
+      "roundTripPolicy": "preserve_editor",
+      "storageDomain": "editor"
+    },
+    {
+      "canonicalTransform": "type-dependent-index",
+      "pattern": "LEMapObject.index",
+      "rationale": "Saved-object type-dependent subtype/permutation, not the array ordinal.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "objects"
+    },
+    {
+      "canonicalTransform": "angle",
+      "pattern": "LEMapObject.facing",
+      "rationale": "Saved object facing.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "objects"
+    },
+    {
+      "canonicalTransform": "enum-code",
+      "pattern": "LEMapObject.type",
+      "rationale": "Saved map object type.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "objects"
+    },
+    {
+      "canonicalTransform": "bitset",
+      "pattern": "LEMapObject.flags",
+      "rationale": "Saved map object flags including activation-bias bits.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "objects"
+    },
+    {
+      "canonicalTransform": "world-distance",
+      "pattern": "LEMapObject.x",
+      "rationale": "Saved world coordinate.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "objects"
+    },
+    {
+      "canonicalTransform": "world-distance",
+      "pattern": "LEMapObject.y",
+      "rationale": "Saved world coordinate.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "objects"
+    },
+    {
+      "canonicalTransform": "world-distance",
+      "pattern": "LEMapObject.z",
+      "rationale": "Saved world coordinate.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "objects"
+    },
+    {
+      "canonicalTransform": "source-index",
+      "pattern": "LEMapObject.polygonIndex",
+      "rationale": "Canonical polygon relationship uses UUID.",
+      "role": "source_provenance",
+      "roundTripPolicy": "preserve_raw_if_present",
+      "storageDomain": "provenance"
+    },
+    {
+      "canonicalTransform": "uuid-reference",
+      "pattern": "LEMapObject.polygonObject",
+      "rationale": "Containing polygon relationship.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "objects"
+    },
+    {
+      "canonicalTransform": "editor-coordinate-from-world",
+      "pattern": "LEMapObject.x32",
+      "rationale": "Pfhorge display coordinate derived from world coordinate.",
+      "role": "derived",
+      "roundTripPolicy": "recompute",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "editor-coordinate-from-world",
+      "pattern": "LEMapObject.y32",
+      "rationale": "Pfhorge display coordinate derived from world coordinate.",
+      "role": "derived",
+      "roundTripPolicy": "recompute",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "world-distance",
+      "pattern": "LEMapPoint.x",
+      "rationale": "Canonical point coordinate.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "geometry"
+    },
+    {
+      "canonicalTransform": "world-distance",
+      "pattern": "LEMapPoint.y",
+      "rationale": "Canonical point coordinate.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "geometry"
+    },
+    {
+      "canonicalTransform": "editor-coordinate-from-world",
+      "pattern": "LEMapPoint.x32",
+      "rationale": "Pfhorge display coordinate derived from world coordinate.",
+      "role": "derived",
+      "roundTripPolicy": "recompute",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "editor-coordinate-from-world",
+      "pattern": "LEMapPoint.y32",
+      "rationale": "Pfhorge display coordinate derived from world coordinate.",
+      "role": "derived",
+      "roundTripPolicy": "recompute",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "derive-from-line-endpoints",
+      "pattern": "LEMapPoint.lines",
+      "rationale": "Reverse incidence set derived from line endpoint references.",
+      "role": "derived",
+      "roundTripPolicy": "recompute",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "integer",
+      "pattern": "PhAbstractNumber.assignedNumber",
+      "rationale": "Numeric identity used by tag objects.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "world"
+    },
+    {
+      "canonicalTransform": "bitset",
+      "pattern": "PhAmbientSound.flags",
+      "rationale": "Ambient sound source semantic.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "world"
+    },
+    {
+      "canonicalTransform": "sound-index",
+      "pattern": "PhAmbientSound.sound_index",
+      "rationale": "Ambient sound source semantic.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "world"
+    },
+    {
+      "canonicalTransform": "volume",
+      "pattern": "PhAmbientSound.volume",
+      "rationale": "Ambient sound source semantic.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "world"
+    },
+    {
+      "canonicalTransform": "bitset",
+      "pattern": "PhRandomSound.flags",
+      "rationale": "Random sound source semantic.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "world"
+    },
+    {
+      "canonicalTransform": "sound-index",
+      "pattern": "PhRandomSound.sound_index",
+      "rationale": "Random sound source semantic.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "world"
+    },
+    {
+      "canonicalTransform": "volume",
+      "pattern": "PhRandomSound.volume",
+      "rationale": "Random sound source semantic.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "world"
+    },
+    {
+      "canonicalTransform": "volume-delta",
+      "pattern": "PhRandomSound.delta_volume",
+      "rationale": "Random sound source semantic.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "world"
+    },
+    {
+      "canonicalTransform": "ticks",
+      "pattern": "PhRandomSound.period",
+      "rationale": "Random sound source semantic.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "world"
+    },
+    {
+      "canonicalTransform": "ticks-delta",
+      "pattern": "PhRandomSound.delta_period",
+      "rationale": "Random sound source semantic.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "world"
+    },
+    {
+      "canonicalTransform": "angle",
+      "pattern": "PhRandomSound.direction",
+      "rationale": "Random sound source semantic.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "world"
+    },
+    {
+      "canonicalTransform": "angle-delta",
+      "pattern": "PhRandomSound.delta_direction",
+      "rationale": "Random sound source semantic.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "world"
+    },
+    {
+      "canonicalTransform": "fixed-pitch",
+      "pattern": "PhRandomSound.pitch",
+      "rationale": "Random sound source semantic.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "world"
+    },
+    {
+      "canonicalTransform": "fixed-pitch-delta",
+      "pattern": "PhRandomSound.delta_pitch",
+      "rationale": "Random sound source semantic.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "world"
+    },
+    {
+      "canonicalTransform": "ticks",
+      "pattern": "PhRandomSound.phase",
+      "rationale": "Random sound source semantic.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "world"
+    },
+    {
+      "canonicalTransform": "bitset",
+      "pattern": "PhItemPlacement.flags",
+      "rationale": "Object-frequency/item-placement semantic; native schema also makes legacy slot explicit.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "objects"
+    },
+    {
+      "canonicalTransform": "count",
+      "pattern": "PhItemPlacement.initial_count",
+      "rationale": "Object-frequency/item-placement semantic; native schema also makes legacy slot explicit.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "objects"
+    },
+    {
+      "canonicalTransform": "count",
+      "pattern": "PhItemPlacement.minimum_count",
+      "rationale": "Object-frequency/item-placement semantic; native schema also makes legacy slot explicit.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "objects"
+    },
+    {
+      "canonicalTransform": "count",
+      "pattern": "PhItemPlacement.maximum_count",
+      "rationale": "Object-frequency/item-placement semantic; native schema also makes legacy slot explicit.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "objects"
+    },
+    {
+      "canonicalTransform": "count",
+      "pattern": "PhItemPlacement.random_count",
+      "rationale": "Object-frequency/item-placement semantic; native schema also makes legacy slot explicit.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "objects"
+    },
+    {
+      "canonicalTransform": "uint16-chance",
+      "pattern": "PhItemPlacement.random_chance",
+      "rationale": "Object-frequency/item-placement semantic; native schema also makes legacy slot explicit.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "objects"
+    },
+    {
+      "canonicalTransform": "annotation-type",
+      "pattern": "PhAnnotationNote.type",
+      "rationale": "Marathon map annotation type/style code.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "world"
+    },
+    {
+      "canonicalTransform": "world-point",
+      "pattern": "PhAnnotationNote.location",
+      "rationale": "Annotation map location.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "world"
+    },
+    {
+      "canonicalTransform": "uuid-reference",
+      "pattern": "PhAnnotationNote.polygon_object",
+      "rationale": "Polygon visibility relationship for the automap annotation.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "world"
+    },
+    {
+      "canonicalTransform": "utf8-string",
+      "pattern": "PhAnnotationNote.text",
+      "rationale": "Annotation text.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "world"
+    },
+    {
+      "canonicalTransform": "text-layout-bounds",
+      "pattern": "PhAnnotationNote.bounds",
+      "rationale": "Editor drawing bounds.",
+      "role": "derived",
+      "roundTripPolicy": "recompute",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "text-layout-size",
+      "pattern": "PhAnnotationNote.size",
+      "rationale": "Editor drawing size.",
+      "role": "derived",
+      "roundTripPolicy": "recompute",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "uuid-reference",
+      "pattern": "PhAnnotationNote.group",
+      "rationale": "Pfhorge note-group membership.",
+      "role": "authoritative_editor",
+      "roundTripPolicy": "preserve_editor",
+      "storageDomain": "editor"
+    },
+    {
+      "canonicalTransform": "portable-color",
+      "pattern": "PhNoteGroup.noteColor",
+      "rationale": "Pfhorge note-group editor metadata.",
+      "role": "authoritative_editor",
+      "roundTripPolicy": "preserve_editor",
+      "storageDomain": "editor"
+    },
+    {
+      "canonicalTransform": "uuid-reference-array",
+      "pattern": "PhNoteGroup.notes",
+      "rationale": "Pfhorge note-group editor metadata.",
+      "role": "authoritative_editor",
+      "roundTripPolicy": "preserve_editor",
+      "storageDomain": "editor"
+    },
+    {
+      "canonicalTransform": "boolean",
+      "pattern": "PhNoteGroup.visible",
+      "rationale": "Pfhorge note-group editor metadata.",
+      "role": "authoritative_editor",
+      "roundTripPolicy": "preserve_editor",
+      "storageDomain": "editor"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "PhScenarioData.theScenarioDocument",
+      "rationale": "Owning Cocoa scenario document pointer.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "legacy-scenario-level-file-roster",
+      "pattern": "PhScenarioData.levelFileNames",
+      "rationale": "Legacy project roster; vNext scenario stores ordered level package entries.",
+      "role": "deprecated_compatibility",
+      "roundTripPolicy": "migrate",
+      "storageDomain": "provenance"
+    },
+    {
+      "canonicalTransform": "legacy-scenario-picture-roster",
+      "pattern": "PhScenarioData.pictFileNames",
+      "rationale": "Legacy project resource roster; vNext uses package resources.",
+      "role": "deprecated_compatibility",
+      "roundTripPolicy": "migrate",
+      "storageDomain": "provenance"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "PhScenarioData.projectDir",
+      "rationale": "Machine-local project directory path is not portable document semantics.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "PhScenarioData.theTable",
+      "rationale": "AppKit table view pointer.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "PhScenarioData.draggedLevel",
+      "rationale": "Transient drag/drop UI state.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "uuid-object-array",
+      "pattern": "Terminal.theSections",
+      "rationale": "Ordered terminal section content.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "terminals"
+    },
+    {
+      "canonicalTransform": "terminal-source-flags",
+      "pattern": "Terminal.flags",
+      "rationale": "Classic term_disguised flag describes source text representation rather than decoded text meaning.",
+      "role": "source_provenance",
+      "roundTripPolicy": "preserve_raw_if_present",
+      "storageDomain": "provenance"
+    },
+    {
+      "canonicalTransform": "lines-per-page",
+      "pattern": "Terminal.lineCount",
+      "rationale": "Terminal lines-per-page setting stored in source header.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "terminals"
+    },
+    {
+      "canonicalTransform": "derive-from-terminal-flags",
+      "pattern": "Terminal.textEncoded",
+      "rationale": "Decoded-state helper derived from source terminal flags.",
+      "role": "derived",
+      "roundTripPolicy": "recompute",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "rich-terminal-text",
+      "pattern": "TerminalSection.theText",
+      "rationale": "Semantic terminal text plus style runs.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "terminals"
+    },
+    {
+      "canonicalTransform": "bitset",
+      "pattern": "TerminalSection.flags",
+      "rationale": "Terminal section presentation flags.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "terminals"
+    },
+    {
+      "canonicalTransform": "section-type",
+      "pattern": "TerminalSection.type",
+      "rationale": "Terminal section semantic type.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "terminals"
+    },
+    {
+      "canonicalTransform": "typed-section-target",
+      "pattern": "TerminalSection.permutation",
+      "rationale": "Type-dependent terminal target/value.",
+      "role": "authoritative_game",
+      "roundTripPolicy": "semantic",
+      "storageDomain": "terminals"
+    },
+    {
+      "canonicalTransform": "uuid-reference-from-section-target",
+      "pattern": "TerminalSection.permutationObject",
+      "rationale": "Legacy pointer mirror for object-targeting section types.",
+      "role": "derived",
+      "roundTripPolicy": "recompute",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "terminal-serialization-layout",
+      "pattern": "TerminalSection.text_offset",
+      "rationale": "Exporter recalculates source text layout descriptor from semantic text/styles.",
+      "role": "derived",
+      "roundTripPolicy": "preserve_raw_if_present",
+      "storageDomain": "provenance"
+    },
+    {
+      "canonicalTransform": "terminal-serialization-layout",
+      "pattern": "TerminalSection.text_length",
+      "rationale": "Exporter recalculates source text layout descriptor from semantic text/styles.",
+      "role": "derived",
+      "roundTripPolicy": "preserve_raw_if_present",
+      "storageDomain": "provenance"
+    },
+    {
+      "canonicalTransform": "terminal-serialization-layout",
+      "pattern": "TerminalSection.lines",
+      "rationale": "Exporter recalculates source text layout descriptor from semantic text/styles.",
+      "role": "derived",
+      "roundTripPolicy": "preserve_raw_if_present",
+      "storageDomain": "provenance"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "TerminalSection.regularFont",
+      "rationale": "AppKit font/layout helper; canonical terminal styles are semantic face/color runs.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "TerminalSection.boldFont",
+      "rationale": "AppKit font/layout helper; canonical terminal styles are semantic face/color runs.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "TerminalSection.italicFont",
+      "rationale": "AppKit font/layout helper; canonical terminal styles are semantic face/color runs.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "TerminalSection.condensedFont",
+      "rationale": "AppKit font/layout helper; canonical terminal styles are semantic face/color runs.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "TerminalSection.expandedFont",
+      "rationale": "AppKit font/layout helper; canonical terminal styles are semantic face/color runs.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "TerminalSection.underlinedFont",
+      "rationale": "AppKit font/layout helper; canonical terminal styles are semantic face/color runs.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "derive-from-object-names",
+      "pattern": "PhLevelNameManager.tagNames",
+      "rationale": "Name cache derived from canonical object/editor names.",
+      "role": "cache",
+      "roundTripPolicy": "recompute",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "derive-from-object-names",
+      "pattern": "PhLevelNameManager.platformNames",
+      "rationale": "Name cache derived from canonical object/editor names.",
+      "role": "cache",
+      "roundTripPolicy": "recompute",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "derive-from-object-names",
+      "pattern": "PhLevelNameManager.lightNames",
+      "rationale": "Name cache derived from canonical object/editor names.",
+      "role": "cache",
+      "roundTripPolicy": "recompute",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "derive-from-object-names",
+      "pattern": "PhLevelNameManager.ambientSoundNames",
+      "rationale": "Name cache derived from canonical object/editor names.",
+      "role": "cache",
+      "roundTripPolicy": "recompute",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "derive-from-object-names",
+      "pattern": "PhLevelNameManager.randomSoundNames",
+      "rationale": "Name cache derived from canonical object/editor names.",
+      "role": "cache",
+      "roundTripPolicy": "recompute",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "derive-from-object-names",
+      "pattern": "PhLevelNameManager.liquidNames",
+      "rationale": "Name cache derived from canonical object/editor names.",
+      "role": "cache",
+      "roundTripPolicy": "recompute",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "derive-from-object-names",
+      "pattern": "PhLevelNameManager.layerNames",
+      "rationale": "Name cache derived from canonical object/editor names.",
+      "role": "cache",
+      "roundTripPolicy": "recompute",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "derive-from-object-names",
+      "pattern": "PhLevelNameManager.polyNames",
+      "rationale": "Name cache derived from canonical object/editor names.",
+      "role": "cache",
+      "roundTripPolicy": "recompute",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "derive-from-object-names",
+      "pattern": "PhLevelNameManager.levelNames",
+      "rationale": "Name cache derived from canonical object/editor names.",
+      "role": "cache",
+      "roundTripPolicy": "recompute",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "derive-from-object-names",
+      "pattern": "PhLevelNameManager.terminalNames",
+      "rationale": "Name cache derived from canonical object/editor names.",
+      "role": "cache",
+      "roundTripPolicy": "recompute",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "PhLevelNameManager.tagNameMenus",
+      "rationale": "AppKit popup-menu tracking state.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "PhLevelNameManager.platformNameMenus",
+      "rationale": "AppKit popup-menu tracking state.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "PhLevelNameManager.lightNameMenus",
+      "rationale": "AppKit popup-menu tracking state.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "PhLevelNameManager.ambientSoundNameMenus",
+      "rationale": "AppKit popup-menu tracking state.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "PhLevelNameManager.randomSoundNameMenus",
+      "rationale": "AppKit popup-menu tracking state.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "PhLevelNameManager.liquidNameMenus",
+      "rationale": "AppKit popup-menu tracking state.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "PhLevelNameManager.layerNameMenus",
+      "rationale": "AppKit popup-menu tracking state.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "PhLevelNameManager.polyNameMenus",
+      "rationale": "AppKit popup-menu tracking state.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "PhLevelNameManager.levelNameMenus",
+      "rationale": "AppKit popup-menu tracking state.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "PhLevelNameManager.terminalNameMenus",
+      "rationale": "AppKit popup-menu tracking state.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "PhLevelNameManager.twoBytesCount",
+      "rationale": "Legacy export bookkeeping.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "PhLevelNameManager.fourBytesCount",
+      "rationale": "Legacy export bookkeeping.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "none",
+      "pattern": "PhLevelNameManager.eightBytesCount",
+      "rationale": "Legacy export bookkeeping.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "codec-state",
+      "pattern": "LEMapData.*",
+      "rationale": "Marathon codec parser/writer buffers, header arrays, cursor and temporary state.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    },
+    {
+      "canonicalTransform": "codec-state",
+      "pattern": "PathwaysExchange.*",
+      "rationale": "Pathways importer source/resource buffers.",
+      "role": "runtime_only",
+      "roundTripPolicy": "discard",
+      "storageDomain": "none"
+    }
+  ],
+  "version": 1
+}

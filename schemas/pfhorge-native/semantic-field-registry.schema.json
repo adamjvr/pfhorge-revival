@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pfhorge.org/schema/native/semantic-field-registry.schema.json",
+  "title": "Pfhorge semantic field registry",
+  "type": "object",
+  "required": [
+    "format",
+    "generatedAt",
+    "source",
+    "summary",
+    "fields"
+  ],
+  "properties": {
+    "format": {
+      "const": "org.pfhorge.semantic-field-audit.v1"
+    },
+    "generatedAt": {
+      "type": "string"
+    },
+    "source": {
+      "type": "object"
+    },
+    "summary": {
+      "type": "object"
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "class",
+          "field",
+          "role",
+          "storageDomain",
+          "roundTripPolicy",
+          "risk",
+          "sourceFile"
+        ],
+        "properties": {
+          "role": {
+            "enum": [
+              "authoritative_game",
+              "authoritative_editor",
+              "source_provenance",
+              "derived",
+              "cache",
+              "runtime_only",
+              "opaque_source",
+              "deprecated_compatibility",
+              "needs_review"
+            ]
+          },
+          "risk": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

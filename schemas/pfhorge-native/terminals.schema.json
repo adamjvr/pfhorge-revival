@@ -1,0 +1,104 @@
+{
+  "$defs": {
+    "section": {
+      "additionalProperties": false,
+      "properties": {
+        "flags": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/unsignedSafeInteger"
+        },
+        "id": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "styles": {
+          "items": {
+            "$ref": "#/$defs/styleRun"
+          },
+          "type": "array"
+        },
+        "target": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/semanticTarget"
+        },
+        "text": {
+          "type": "string"
+        },
+        "type": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "flags",
+        "target",
+        "text",
+        "styles"
+      ],
+      "type": "object"
+    },
+    "styleRun": {
+      "additionalProperties": false,
+      "properties": {
+        "colorIndex": {
+          "maximum": 7,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "face": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/unsignedSafeInteger"
+        },
+        "length": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/unsignedSafeInteger"
+        },
+        "start": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/unsignedSafeInteger"
+        }
+      },
+      "required": [
+        "start",
+        "length",
+        "face",
+        "colorIndex"
+      ],
+      "type": "object"
+    },
+    "terminal": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
+        },
+        "linesPerPage": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/safeInteger"
+        },
+        "sections": {
+          "items": {
+            "$ref": "#/$defs/section"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "linesPerPage",
+        "sections"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "urn:pfhorge:schema:terminals:1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/terminal"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "items"
+  ],
+  "title": "Pfhorge Canonical Terminals",
+  "type": "object"
+}
