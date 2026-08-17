@@ -9,6 +9,12 @@
 			<string>MapNewIcon</string>
 			<key>CFBundleTypeName</key>
 			<string>Marathon Map</string>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>sceA</string>
+				<string>scen</string>
+				<string>sce</string>
+			</array>
 			<key>CFBundleTypeOSTypes</key>
 			<array>
 				<string>sce2</string>
@@ -24,7 +30,7 @@
 			<key>LSTypeIsPackage</key>
 			<false/>
 			<key>NSDocumentClass</key>
-			<string>LEMap</string>
+			<string>PhPfhorgeSingleLevelDoc</string>
 		</dict>
 		<dict>
 			<key>CFBundleTypeName</key>

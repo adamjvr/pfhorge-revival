@@ -4,7 +4,14 @@
 #import <Cocoa/Cocoa.h>
 
 #include "../Core/MarathonMapProbe.h"
+
+// FORMAT-3A-LINK-1: this Cocoa bridge is included by more than one
+// Objective-C translation unit. The core probe implementation must have
+// exactly one external-linkage owner; secondary users request declarations
+// only before including this bridge.
+#ifndef PFHORGE_MARATHON_MAP_PROBE_DECLARATIONS_ONLY
 #include "../Core/MarathonMapProbe.inc"
+#endif
 
 static NSString *PfhorgeLegacyStringFromBytes(
     const uint8_t *bytes,

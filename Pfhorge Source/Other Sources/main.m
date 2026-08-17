@@ -24,7 +24,11 @@
 
 #import <Cocoa/Cocoa.h>
 
+// FORMAT-3A: install custom document routing before AppKit creates its default.
+#include "../Format/Cocoa/PfhorgeUnifiedDocumentController.inc"
+
 int main(int argc, const char *argv[])
 {
+    PfhorgeInstallUnifiedDocumentController();
     return NSApplicationMain(argc, argv);
 }

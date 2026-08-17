@@ -3,7 +3,7 @@
 
 SHELL := /bin/bash
 
-.PHONY: stage1 audit baseline preview-core-check map-intake-check map1b-check content1a-check clean-revival help content1a1-check content1a2-check tex1a-check vm4a-check tex1a2-check native-format-check format1b-check format1c-check format2a-check
+.PHONY: stage1 audit baseline preview-core-check map-intake-check map1b-check content1a-check clean-revival help content1a1-check content1a2-check tex1a-check vm4a-check tex1a2-check native-format-check format1b-check format1c-check format2a-check format3a-check
 
 help:
 	@printf '%s\n' \
@@ -17,6 +17,7 @@ help:
 	  '  make -f revival.mk format1b-check       Audit semantic fields and compile canonical format core' \
 	  '  make -f revival.mk format1c-check       Validate complete canonical JSON schema candidate' \
 	  '  make -f revival.mk format2a-check       Validate native .pfhlev integration + Xcode build' \
+	  '  make -f revival.mk format3a-check       Validate unified Open/import/native-only level I/O' \
 	  '  make -f revival.mk map1b-check         Validate MAP-1B and the macOS baseline' \
 	  '  make -f revival.mk content1a-check     Validate Content Manager and VM settings' \
 	  '  make -f revival.mk content1a1-check    Validate content selection and mouse/camera polish' \
@@ -72,6 +73,9 @@ format1c-check:
 
 format2a-check:
 	@scripts/revival/validate_format2a.sh
+
+format3a-check:
+	@scripts/revival/validate_format3a.sh
 
 stage1: audit baseline preview-core-check map-intake-check
 

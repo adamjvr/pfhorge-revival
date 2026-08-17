@@ -128,6 +128,7 @@ enum {
 + (NSMutableData *)convertLevelToDataObject:(LELevelData *)theLevel error:(NSError**)outError;
 + (NSMutableData *)mergeScenarioToMarathonMapFile:(PhPfhorgeScenarioLevelDoc *)theScenario error:(NSError**)outError;
 + (NSMutableArray *)convertMarathonDataToArchived:(NSData *)theData levelNames:(NSMutableArray *)theLevelNames error:(NSError**)outError;
++ (NSMutableArray<LELevelData *> *)convertMarathonDataToLevels:(NSData *)theData levelNames:(NSMutableArray<NSString *> *)theLevelNames error:(NSError**)outError;
 
 - (instancetype)initWithMapNSData:(NSData *)theMap;
 

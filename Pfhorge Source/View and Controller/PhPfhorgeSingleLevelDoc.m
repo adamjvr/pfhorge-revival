@@ -35,6 +35,15 @@
 // FORMAT-2A native .pfhlev transport bridge
 #import "../Format/Native/PfhorgeNativeDocumentCodec.inc"
 
+// FORMAT-3A direct-open uses the same classic source resolver as Scenario Import.
+// FORMAT-3A-LINK-1: ScenarioLevelDoc owns the external C probe
+// implementation. Direct-open needs declarations and the static Cocoa
+// bridge helpers, but must not emit a second copy of the core symbols.
+#define PFHORGE_MARATHON_MAP_PROBE_DECLARATIONS_ONLY 1
+#include "../Map Intake/Cocoa/PfhorgeMarathonMapIntakeBridge.inc"
+#undef PFHORGE_MARATHON_MAP_PROBE_DECLARATIONS_ONLY
+#include "../Format/Cocoa/PfhorgeUnifiedOpen.inc"
+
 NSString *const PhScenarioDeallocatingNotification = @"PhScenarioDeallocatingNotification";
 NSString *const PhScenarioLevelNamesChangedNotification = @"PhScenarioLevelNamesChangedNotification";
 
@@ -142,6 +151,12 @@ NSString *const PhScenarioLevelNamesChangedNotification = @"PhScenarioLevelNames
     }
 }
 
+// FORMAT-3A: directly opened Marathon sources are external source documents.
++ (BOOL)autosavesInPlace
+{
+    return NO;
+}
+
 - (void)makeWindowControllers
 {
     NSLog(@"*** Subclassed LEMap - makeWindowControllers ***");
@@ -149,6 +164,52 @@ NSString *const PhScenarioLevelNamesChangedNotification = @"PhScenarioLevelNames
     theLevelDocumentWindowController = [[LELevelWindowController alloc] init];
     [self addWindowController:theLevelDocumentWindowController];
     [theLevelDocumentWindowController disableTheLevelNamesMenu:YES];
+}
+
+- (BOOL)readFromURL:(NSURL *)url
+              ofType:(NSString *)typeName
+               error:(NSError * _Nullable *)outError
+{
+    if ([typeName isEqualToString:@"org.bungie.source.map"]) {
+        LELevelData *openedLevel =
+            PfhorgeOpenMarathonSourceURL(
+                url,
+                outError);
+
+        if (openedLevel == nil) {
+            return NO;
+        }
+
+        theRawMapData = nil;
+        theMap = nil;
+        theLevel = openedLevel;
+        cameFromMarathonFormatedFile = YES;
+        shouldExportToMarathonFormat = NO;
+
+        [theLevel updateCounts];
+        [theLevel setLevelDocument:self];
+        [theLevel setMyUndoManager:[self undoManager]];
+        [theLevel setUpArrayPointersForEveryObject];
+        [theLevel setupDefaultObjects];
+
+        @try {
+            [resources loadContentsOfURL:url error:NULL];
+        } @catch (__unused NSException *exception) {
+            // Semantic map loading already succeeded.
+        }
+
+        NSLog(
+            @"FORMAT-3A: opened Marathon source as "
+             "an editable Pfhorge level; normal Save "
+             "will migrate it to Pfhorge Native.");
+
+        return YES;
+    }
+
+    return [super
+        readFromURL:url
+             ofType:typeName
+              error:outError];
 }
 
 - (NSData *)dataOfType:(NSString *)typeName error:(NSError * _Nullable *)outError {

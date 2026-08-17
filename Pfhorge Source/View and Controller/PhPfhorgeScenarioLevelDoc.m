@@ -33,6 +33,10 @@
 
 #include "../Map Intake/Cocoa/PfhorgeMarathonMapIntakeBridge.inc"
 
+// FORMAT-3A: every scenario-created .pfhlev is native.
+#include "../Format/Native/PfhorgeNativeDocumentCodec.inc"
+#include "../Format/Native/PfhorgeLevelPersistenceBridge.inc"
+
 #import "PhProgress.h"
 #include "../Map Intake/Cocoa/PfhorgeMarathonMapImportWorkflow.inc"
 
@@ -200,12 +204,12 @@
 
         NSMutableArray<NSString *> *convertedNames = [NSMutableArray array];
         NSError *conversionError = nil;
-        NSArray<NSData *> *allArchivedLevels =
-            [LEMapData convertMarathonDataToArchived:resolvedMapData
-                                          levelNames:convertedNames
-                                               error:&conversionError];
+        NSArray<LELevelData *> *allConvertedLevels =
+            [LEMapData convertMarathonDataToLevels:resolvedMapData
+                                        levelNames:convertedNames
+                                             error:&conversionError];
 
-        if (allArchivedLevels.count == 0U) {
+        if (allConvertedLevels.count == 0U) {
             [progress orderOutWin:self];
             if (conversionError == nil) {
                 conversionError = PfhorgeMapIntakeError(
@@ -216,12 +220,12 @@
             return;
         }
 
-        NSMutableArray<NSData *> *selectedLevelData = [NSMutableArray array];
+        NSMutableArray<LELevelData *> *selectedLevels = [NSMutableArray array];
         NSMutableArray<NSString *> *originalNames = [NSMutableArray array];
         __block NSError *selectionError = nil;
         [selectedEntries enumerateIndexesUsingBlock:
             ^(NSUInteger ordinal, BOOL *stop) {
-                if (ordinal >= allArchivedLevels.count) {
+                if (ordinal >= allConvertedLevels.count) {
                     selectionError = PfhorgeMapIntakeError(
                         fileURL,
                         [NSString stringWithFormat:
@@ -230,7 +234,7 @@
                     *stop = YES;
                     return;
                 }
-                [selectedLevelData addObject:allArchivedLevels[ordinal]];
+                [selectedLevels addObject:allConvertedLevels[ordinal]];
                 [originalNames addObject:PfhorgeOriginalLevelName(
                     &mapProbe,
                     ordinal,
@@ -250,7 +254,7 @@
         [progress setStatusText:@"Writing Selected Levels Atomically…"];
         NSError *writeError = nil;
         if (!PfhorgeStageImportedLevelFiles(
-                selectedLevelData,
+                selectedLevels,
                 nativeNames,
                 destinationDirectory,
                 &writeError)) {
@@ -572,9 +576,22 @@
     {
         fpath = [[basePath stringByAppendingPathComponent:fname] stringByAppendingPathExtension:@"pfhlev"];
         
+        NSError *migrationError = nil;
+        NSData *nativeData =
+            PfhorgeNativePackageFromLegacyPfhlevData(
+                fdata,
+                &migrationError);
+
+        if (nativeData == nil) {
+            NSLog(@"FORMAT-3A Pathways level migration failed for %@: %@",
+                  fname,
+                  migrationError);
+            [self presentError:migrationError];
+            return;
+        }
+
         [[NSFileManager defaultManager] createFileAtPath:fpath
-                                                contents:fdata
-                                              // May want to set creator code, etc...
+                                                contents:nativeData
                                               attributes:@{NSFileHFSTypeCode: @((OSType)'PfhL'),
                                                            NSFileHFSCreatorCode: @((OSType)'PFrg')}];
     }

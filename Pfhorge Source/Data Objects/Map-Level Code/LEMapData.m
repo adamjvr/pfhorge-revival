@@ -53,6 +53,10 @@
 
 #import "crc.h"
 
+// FORMAT-3A: scenario merge understands native and legacy .pfhlev.
+#include "../../Format/Native/PfhorgeNativeDocumentCodec.inc"
+#include "../../Format/Native/PfhorgeLevelPersistenceBridge.inc"
+
 BOOL setupPointerArraysDurringLoading = YES;
 
 //#undef useDebugingLogs
@@ -144,6 +148,81 @@ BOOL setupPointerArraysDurringLoading = YES;
     return theArchivedLevels;
 }
 
+
+// FORMAT-3A: semantic conversion API. Active import/open paths consume
+// level objects directly instead of serializing through historical Pfhorge.
++ (NSMutableArray<LELevelData *> *)convertMarathonDataToLevels:(NSData *)theData
+                                                    levelNames:(NSMutableArray<NSString *> *)theLevelNamesEXP
+                                                         error:(NSError**)outError
+{
+    LEMapData *map =
+        [[LEMapData alloc] initWithMapNSData:theData];
+
+    if (map == nil) {
+        if (outError != NULL) {
+            *outError = [NSError
+                errorWithDomain:NSCocoaErrorDomain
+                           code:NSFileReadCorruptFileError
+                       userInfo:@{
+                           NSLocalizedFailureReasonErrorKey:
+                               @"Could not initialize the Marathon map parser."
+                       }];
+        }
+        return nil;
+    }
+
+    long numberOfLevels = map.numberOfLevels;
+    NSArray<NSString *> *sourceNames =
+        map.levelNames ?: @[];
+
+    NSMutableArray<LELevelData *> *levels =
+        [NSMutableArray
+            arrayWithCapacity:
+                (NSUInteger)MAX(numberOfLevels, 0)];
+
+    for (short levelNumber = 1;
+         levelNumber <= numberOfLevels;
+         ++levelNumber) {
+
+        LELevelData *level =
+            [map getLevel:levelNumber log:NO];
+
+        if (level == nil) {
+            if (outError != NULL) {
+                *outError = [NSError
+                    errorWithDomain:NSCocoaErrorDomain
+                               code:NSFileReadCorruptFileError
+                           userInfo:@{
+                               NSLocalizedFailureReasonErrorKey:
+                                   [NSString stringWithFormat:
+                                       @"Marathon level %d could not be decoded.",
+                                       levelNumber]
+                           }];
+            }
+            return nil;
+        }
+
+        [levels addObject:level];
+
+        NSUInteger nameIndex =
+            (NSUInteger)(levelNumber - 1);
+
+        NSString *name =
+            nameIndex < sourceNames.count
+                ? sourceNames[nameIndex]
+                : level.levelName;
+
+        [theLevelNamesEXP addObject:
+            name.length > 0U
+                ? name
+                : [NSString stringWithFormat:
+                    @"Level %d",
+                    levelNumber]];
+    }
+
+    return levels;
+}
+
 // ***************************** init/dealloc methods *****************************
 #pragma mark - init/dealloc methods
 - (id)init
@@ -197,9 +276,18 @@ BOOL setupPointerArraysDurringLoading = YES;
         NSData *theFileData = [NSData dataWithContentsOfFile:fileName];
         NSMutableData *tempData = [[NSMutableData alloc] initWithCapacity:200000];
         
-        theLevel =	[NSKeyedUnarchiver unarchivedObjectOfClass:[LELevelData class] fromData:
-                     [theFileData subdataWithRange:NSMakeRange(10 ,([theFileData length] - 10))]
-                                                        error:NULL];
+        NSError *levelReadError = nil;
+        theLevel =
+            PfhorgeLevelFromAnyPfhlevData(
+                theFileData,
+                &levelReadError);
+
+        if (theLevel == nil) {
+            if (outError != NULL) {
+                *outError = levelReadError;
+            }
+            return nil;
+        }
         
         mapDataToSave = tempData;
         [self exportLevelDataToMarathonFormat:theLevel];

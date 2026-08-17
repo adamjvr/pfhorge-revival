@@ -55,6 +55,9 @@
 
 #import "ScenarioResources.h"
 #import "Resource.h"
+
+// FORMAT-3A: base-map persistence is native-only.
+#include "../Format/Native/PfhorgeNativeDocumentCodec.inc"
 #import "Pfhorge-Swift.h"
 
 @implementation LEMap
@@ -609,32 +612,25 @@
 
 - (NSData *)dataOfType:(NSString *)aType error:(NSError * _Nullable *)outError
 {
-    NSMutableData *entireMapData = [[NSMutableData alloc] initWithCapacity:(500 * 1000)];
-    
-    if (shouldExportToMarathonFormat == YES || [aType isEqualToString:@"org.bungie.source.map"]) {
-        entireMapData = [LEMapData convertLevelToDataObject:theLevel error:outError];
-    } else {
-        const short theVersionNumber = CFSwapInt16HostToBig(currentVersionOfPfhorgeLevelData);
-        static const short thePfhorgeDataSig1 = OSSwapHostToBigInt16(26743);
-        static const unsigned short thePfhorgeDataSig2 = OSSwapHostToBigInt16(34521);
-        static const int thePfhorgeDataSig3 = OSSwapHostToBigInt32(42296737);
+    if (shouldExportToMarathonFormat == YES ||
+        [aType isEqualToString:@"org.bungie.source.map"]) {
+        return [LEMapData
+            convertLevelToDataObject:theLevel
+                               error:outError];
+    }
 
-        NSData *theLevelMapData = [NSKeyedArchiver archivedDataWithRootObject:theLevel requiringSecureCoding:NO error:outError];
-        if (!theLevelMapData) {
-            return nil;
-        }
-        
-        [entireMapData appendBytes:&theVersionNumber length:2];
-        [entireMapData appendBytes:&thePfhorgeDataSig1 length:2];
-        [entireMapData appendBytes:&thePfhorgeDataSig2 length:2];
-        [entireMapData appendBytes:&thePfhorgeDataSig3 length:4];
-        
-        [entireMapData appendData:theLevelMapData];
-        
+    // Legacy Pfhorge is read-only migration input.
+    NSData *nativePackage =
+        PfhorgeNative2ACreatePackage(
+            self,
+            theLevel,
+            outError);
+
+    if (nativePackage != nil) {
         cameFromMarathonFormatedFile = NO;
     }
-    
-    return entireMapData;
+
+    return nativePackage;
 }
 
 + (BOOL)autosavesInPlace

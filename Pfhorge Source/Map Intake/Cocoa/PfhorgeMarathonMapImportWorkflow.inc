@@ -282,12 +282,12 @@ static NSArray<NSString *> *PfhorgeUniqueNativeLevelNames(
 }
 
 static BOOL PfhorgeStageImportedLevelFiles(
-    NSArray<NSData *> *levelData,
+    NSArray<LELevelData *> *levels,
     NSArray<NSString *> *nativeNames,
     NSString *destinationDirectory,
     NSError **error)
 {
-    if (levelData.count != nativeNames.count || levelData.count == 0U) {
+    if (levels.count != nativeNames.count || levels.count == 0U) {
         if (error != NULL) {
             *error = PfhorgeMapIntakeError(
                 nil,
@@ -313,7 +313,7 @@ static BOOL PfhorgeStageImportedLevelFiles(
     NSMutableArray<NSString *> *finalPaths = [NSMutableArray array];
     BOOL succeeded = YES;
 
-    for (NSUInteger index = 0U; index < levelData.count; ++index) {
+    for (NSUInteger index = 0U; index < levels.count; ++index) {
         NSString *fileName = [nativeNames[index]
             stringByAppendingPathExtension:@"pfhlev"];
         NSString *stagedPath = [stagingDirectory
@@ -321,9 +321,15 @@ static BOOL PfhorgeStageImportedLevelFiles(
         NSString *finalPath = [destinationDirectory
             stringByAppendingPathComponent:fileName];
 
-        if (![levelData[index] writeToFile:stagedPath
-                                   options:NSDataWritingAtomic
-                                     error:error]) {
+        NSData *nativePackage =
+            PfhorgeNativePackageForLevel(
+                levels[index],
+                error);
+
+        if (nativePackage == nil ||
+            ![nativePackage writeToFile:stagedPath
+                         options:NSDataWritingAtomic
+                           error:error]) {
             succeeded = NO;
             break;
         }
