@@ -3,6 +3,18 @@
     "line": {
       "additionalProperties": false,
       "properties": {
+        "clockwisePolygon": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/nullableUuid"
+        },
+        "clockwiseSide": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/nullableUuid"
+        },
+        "counterclockwisePolygon": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/nullableUuid"
+        },
+        "counterclockwiseSide": {
+          "$ref": "urn:pfhorge:schema:common:1#/$defs/nullableUuid"
+        },
         "endPoint": {
           "$ref": "urn:pfhorge:schema:common:1#/$defs/uuid"
         },

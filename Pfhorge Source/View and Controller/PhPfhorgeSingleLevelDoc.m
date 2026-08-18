@@ -160,10 +160,17 @@ NSString *const PhScenarioLevelNamesChangedNotification = @"PhScenarioLevelNames
 - (void)makeWindowControllers
 {
     NSLog(@"*** Subclassed LEMap - makeWindowControllers ***");
-    
+
     theLevelDocumentWindowController = [[LELevelWindowController alloc] init];
     [self addWindowController:theLevelDocumentWindowController];
     [theLevelDocumentWindowController disableTheLevelNamesMenu:YES];
+
+    if (cameFromMarathonFormatedFile && !self.isDocumentEdited) {
+        // The unified controller normally marks a detached native import dirty
+        // before UI construction.  This remains as a defensive fallback.
+        [self updateChangeCount:NSChangeDone];
+        NSLog(@"FORMAT-3A: imported Marathon source marked dirty for first native save.");
+    }
 }
 
 - (BOOL)readFromURL:(NSURL *)url
@@ -218,16 +225,48 @@ NSString *const PhScenarioLevelNamesChangedNotification = @"PhScenarioLevelNames
     ///NSLog(@"*** Subclassed LEMap - dataRepresentationOfType ***");
     
     NSMutableData *entireMapData = [[NSMutableData alloc] initWithCapacity:(500 * 1000)];
+
+    NSLog(@"FORMAT-3 save routing: requestedType=%@ exportMarathon=%d importedMarathon=%d",
+          typeName ?: @"(nil)",
+          shouldExportToMarathonFormat ? 1 : 0,
+          cameFromMarathonFormatedFile ? 1 : 0);
+
+    if ([typeName isEqualToString:@"org.bungie.source.map"] &&
+        shouldExportToMarathonFormat == NO) {
+        if (outError) {
+            *outError = [NSError
+                errorWithDomain:NSCocoaErrorDomain
+                           code:NSFileWriteUnknownError
+                       userInfo:@{
+                           NSLocalizedDescriptionKey:
+                               @"Pfhorge refused an implicit Marathon-format save.",
+                           NSLocalizedFailureReasonErrorKey:
+                               @"Marathon files are import sources. Use an explicit Marathon export command."
+                       }];
+        }
+        NSLog(@"FORMAT-3A SAFETY: refused implicit Marathon write request in single-level document.");
+        return nil;
+    }
     // FORMAT-2A: all non-Marathon Pfhorge saves migrate to the native ZIP package.
-    if (shouldExportToMarathonFormat == NO && ![typeName isEqualToString:@"org.bungie.source.map"]) {
+    if (shouldExportToMarathonFormat == NO) {
         NSData *nativePackage = PfhorgeNative2ACreatePackage(self, theLevel, outError);
-        if (nativePackage == nil) return nil;
+        if (nativePackage == nil) {
+            NSError *reportedError = (outError != NULL) ? *outError : nil;
+            NSLog(@"FORMAT-3 native save failed: %@",
+                  reportedError ?: @"(writer returned nil without NSError)");
+            return nil;
+        }
+
         cameFromMarathonFormatedFile = NO;
+
+        NSLog(@"FORMAT-3 native save payload created successfully (%lu bytes).",
+              (unsigned long)nativePackage.length);
+
         return nativePackage;
     }
 
     
-    if (shouldExportToMarathonFormat == YES || [typeName isEqualToString:@"org.bungie.source.map"]) {
+    if (shouldExportToMarathonFormat == YES) {
         NSData *maraMap = [LEMapData convertLevelToDataObject:theLevel error:outError];
         if (!maraMap) {
             return nil;

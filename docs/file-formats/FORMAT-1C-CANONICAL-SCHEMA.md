@@ -25,10 +25,17 @@ line(startPoint UUID, endPoint UUID, flags)
 polygon.edges[] = ordered {line UUID, side UUID|null, direction}
 ```
 
-Legacy line owner pointers, side indexes, polygon adjacency arrays, length,
-angle, azimuth, centers, areas, exclusion zones, and neighbor lists are not
-independent canonical truth. They are either recomputed or retained only in
-source provenance when round-trip evidence requires their original raw values.
+FORMAT-1C originally treated legacy line owner pointers as derived state.
+FORMAT-3B runtime round-trip testing showed that Pfhorge's clockwise/
+counterclockwise polygon and side relationships are required to reconstruct
+historical portal topology exactly. The base geometry schema therefore permits
+`clockwisePolygon`, `counterclockwisePolygon`, `clockwiseSide`, and
+`counterclockwiseSide` on line records; FORMAT-3B canonical-authority revision 3
+requires and cross-validates them against polygon edge usage.
+
+Legacy side indexes, polygon adjacency arrays, length, angle, azimuth, centers,
+areas, exclusion zones, and neighbor lists remain derived or fidelity-only
+state rather than independent canonical truth.
 
 This is intentional: vNext must have one topology, not several caches that can
 disagree.
@@ -141,7 +148,7 @@ container ordinal.
 - duplicate UUID rejection,
 - typed reference checking,
 - dangling reference rejection,
-- polygon edge/side ownership checks,
+- polygon edge/side reference integrity checks; side `line`/`polygon` compatibility hints are typed but non-authoritative,
 - line endpoint checks,
 - floor <= ceiling validation,
 - editor layer/note-group member checking,

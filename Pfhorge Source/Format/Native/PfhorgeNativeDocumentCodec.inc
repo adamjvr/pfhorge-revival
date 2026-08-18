@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Adam Vadala-Roth
 //
-// FORMAT-2A native .pfhlev transport bridge.
+// Pfhorge Native .pfhlev codec — FORMAT-3B canonical authority; 2A/3A migration retained.
 // Included by PhPfhorgeSingleLevelDoc.m to avoid unrelated PBX project churn.
 
 #import <Foundation/Foundation.h>
@@ -16,7 +16,7 @@
 
 static NSString * const PFN2AErrorDomain = @"org.pfhorge.format.native.format2a";
 static NSString * const PFN2AMimeType = @"application/vnd.pfhorge.package+zip";
-static NSString * const PFN2AFormatVersion = @"1.0.0-draft.1";
+static NSString * const PFN2AFormatVersion = @"1.1.0-draft.1";
 static NSString * const PFN2ABridgePath = @"bridge/level.archive";
 static NSString * const PFN2AExtensionId = @"org.pfhorge.format2a.snapshot-authority";
 static const void *PFN2AStableIdKey = &PFN2AStableIdKey;
@@ -273,67 +273,45 @@ static NSDictionary<NSString *, NSData *> *PFN2AReadZip(NSData *zip, NSError **o
     return files;
 }
 
-static NSDictionary *PFN2ACounts(LELevelData *level)
+#include "PfhorgeCanonicalLevelBridge.inc"
+
+static NSDictionary *PFN3BParseJSONResource(NSDictionary<NSString *, NSData *> *files,
+                                            NSString *path,
+                                            NSError **outError)
 {
-    return @{
-        @"points": @(PFN2AArray(level, @"points").count),
-        @"lines": @(PFN2AArray(level, @"lines").count),
-        @"polygons": @(PFN2AArray(level, @"polygons").count),
-        @"objects": @(PFN2AArray(level, @"theMapObjects").count),
-        @"sides": @(PFN2AArray(level, @"sides").count),
-        @"lights": @(PFN2AArray(level, @"lights").count),
-        @"annotations": @(PFN2AArray(level, @"notes").count),
-        @"media": @(PFN2AArray(level, @"media").count),
-        @"ambientSounds": @(PFN2AArray(level, @"ambientSounds").count),
-        @"randomSounds": @(PFN2AArray(level, @"randomSounds").count),
-        @"itemPlacements": @(PFN2AArray(level, @"itemPlacement").count),
-        @"platforms": @(PFN2AArray(level, @"platforms").count),
-        @"terminals": @(PFN2AArray(level, @"terimals").count),
-        @"layers": @(PFN2AArray(level, @"layersInLevel").count),
-        @"tags": @(PFN2AArray(level, @"tags").count),
-        @"noteGroups": @(PFN2AArray(level, @"noteTypes").count),
-    };
+    NSData *data = files[path];
+    if (!data) {
+        if (outError) *outError = PFN2AError(3330, [NSString stringWithFormat:@"Missing native resource: %@", path]);
+        return nil;
+    }
+    NSError *error = nil;
+    id object = [NSJSONSerialization JSONObjectWithData:data options:0 error:&error];
+    if (![object isKindOfClass:NSDictionary.class]) {
+        if (outError) *outError = error ?: PFN2AError(3331, [NSString stringWithFormat:@"Invalid JSON resource: %@", path]);
+        return nil;
+    }
+    return object;
 }
 
-static NSDictionary *PFN2ALevelEnvelope(LELevelData *level)
+static BOOL PFN3BVerifyManifestResources(NSDictionary *manifest,
+                                         NSDictionary<NSString *, NSData *> *files,
+                                         NSError **outError)
 {
-    NSInteger env = level.environmentCode;
-    id envJSON = (env >= 0 && env <= 4) ? @{@"classicCode": @(env)} : [NSNull null];
-
-    return @{
-        @"$schema": @"urn:pfhorge:schema:level:1",
-        @"id": PFN2AId(level),
-        @"name": level.levelName ?: @"Untitled Level",
-        @"metadata": @{
-            @"environment": envJSON,
-            @"physicsModel": @(level.physicsModel),
-            @"songIndex": @(level.songIndex),
-            @"missionFlags": @((NSUInteger)level.missionFlags),
-            @"environmentFlags": @((NSUInteger)level.environmentFlags),
-            @"entryPointFlags": @((NSInteger)level.entryPointFlags),
-        },
-        @"geometry": @{@"points": @[], @"lines": @[], @"polygons": @[]},
-        @"surfaces": @{@"sides": @[]},
-        @"world": @{
-            @"lights": @[], @"media": @[], @"platforms": @[], @"objects": @[],
-            @"itemPlacements": @[], @"ambientSounds": @[], @"randomSounds": @[],
-            @"tags": @[], @"annotations": @[],
-        },
-        @"terminals": @{@"items": @[]},
-        @"editor": @{
-            @"layers": @[], @"noteGroups": @[], @"names": @{}, @"lineOverrides": @[],
-            @"currentLayer": [NSNull null], @"levelOptions": @{},
-        },
-        @"extensions": @{
-            PFN2AExtensionId: @{
-                @"canonicalAuthority": @NO,
-                @"authoritativeResource": PFN2ABridgePath,
-                @"objectCounts": PFN2ACounts(level),
-                @"nextMilestone": @"FORMAT-2B",
-            }
-        },
-        @"provenance": @{@"sources": @[], @"bindings": @[], @"opaqueFragments": @[]},
-    };
+    for (id raw in manifest[@"resources"] ?: @[]) {
+        if (![raw isKindOfClass:NSDictionary.class]) {
+            if (outError) *outError = PFN2AError(3332, @"Manifest contains an invalid resource record.");
+            return NO;
+        }
+        NSString *path = raw[@"path"];
+        NSString *expected = raw[@"sha256"];
+        NSData *resource = [path isKindOfClass:NSString.class] ? files[path] : nil;
+        if (!resource || ![expected isKindOfClass:NSString.class] ||
+            ![PFN2ASHA256(resource) isEqualToString:expected]) {
+            if (outError) *outError = PFN2AError(3333, [NSString stringWithFormat:@"Resource hash mismatch: %@", path ?: @"<unknown>"]);
+            return NO;
+        }
+    }
+    return YES;
 }
 
 static BOOL PfhorgeNative2ADataLooksLikePackage(NSData *data)
@@ -343,44 +321,75 @@ static BOOL PfhorgeNative2ADataLooksLikePackage(NSData *data)
     return b[0] == 'P' && b[1] == 'K' && b[2] == 3 && b[3] == 4;
 }
 
+static BOOL PFN3BValidateWrittenPackage(NSData *package, NSError **outError)
+{
+    NSError *error = nil;
+    NSDictionary<NSString *,NSData *> *files = PFN2AReadZip(package, &error);
+    if (!files) { if (outError) *outError = error; return NO; }
+    NSString *mime = [[NSString alloc] initWithData:files[@"mimetype"] encoding:NSASCIIStringEncoding];
+    if (![mime isEqualToString:PFN2AMimeType]) {
+        if (outError) *outError = PFN2AError(3334, @"Native read-back found an invalid mimetype.");
+        return NO;
+    }
+    NSDictionary *manifest = PFN3BParseJSONResource(files, @"manifest.json", &error);
+    if (!manifest || !PFN3BVerifyManifestResources(manifest, files, &error)) {
+        if (outError) *outError = error; return NO;
+    }
+    NSDictionary *documentJSON = PFN3BParseJSONResource(files, manifest[@"document"], &error);
+    NSArray *levels = [documentJSON[@"levels"] isKindOfClass:NSArray.class] ? documentJSON[@"levels"] : nil;
+    NSString *levelPath = levels.count && [levels[0] isKindOfClass:NSDictionary.class] ? levels[0][@"path"] : nil;
+    NSDictionary *levelJSON = PFN3BParseJSONResource(files, levelPath, &error);
+    if (!levelJSON || !PFN3BValidateCanonicalLevelJSON(levelJSON, &error)) {
+        if (outError) *outError = error; return NO;
+    }
+
+    // Exercise the canonical reader against the exact bytes just written. This
+    // is deliberately more than a JSON parse: it catches Cocoa materialization
+    // regressions before a Save is reported as successful.
+    LELevelData *roundTripLevel = PFN3BLevelFromCanonicalJSON(levelJSON, &error);
+    if (!roundTripLevel) {
+        if (outError) *outError = error ?: PFN2AError(3335, @"FORMAT-3B read-back could not materialize LELevelData.");
+        return NO;
+    }
+    NSDictionary *authority = levelJSON[@"extensions"][PFN3BCanonicalAuthorityExtensionId];
+    NSDictionary *expectedCounts = [authority[@"objectCounts"] isKindOfClass:NSDictionary.class]
+        ? authority[@"objectCounts"] : @{};
+    if (![PFN3BCountsFromLevel(roundTripLevel) isEqualToDictionary:expectedCounts]) {
+        if (outError) *outError = PFN2AError(3336, @"FORMAT-3B read-back object counts changed during materialization.");
+        return NO;
+    }
+    if (files[PFN2ABridgePath]) {
+        if (outError) *outError = PFN2AError(3337, @"FORMAT-3B writer unexpectedly emitted the legacy bridge resource.");
+        return NO;
+    }
+    return YES;
+}
+
 static NSData *PfhorgeNative2ACreatePackage(id document, LELevelData *level, NSError **outError)
 {
     NSError *error = nil;
-    NSData *bridge = [NSKeyedArchiver archivedDataWithRootObject:level
-                                          requiringSecureCoding:YES
-                                                          error:&error];
-    if (!bridge) {
-        if (outError) *outError = error ?: PFN2AError(2220, @"Could not archive FORMAT-2A bridge payload.");
+    NSDictionary *levelJSON = PFN3BCanonicalLevelJSON(level, &error);
+    if (!levelJSON || !PFN3BValidateCanonicalLevelJSON(levelJSON, &error)) {
+        if (outError) *outError = error ?: PFN2AError(3340, @"Canonical graph validation failed before save.");
         return nil;
     }
-
-    NSDictionary *levelJSON = PFN2ALevelEnvelope(level);
     NSData *levelData = PFN2AJSON(levelJSON, &error);
     if (!levelData) { if (outError) *outError = error; return nil; }
 
-    NSString *docId = PFN2AId(document);
+    NSString *docId = PFN2AId(document ?: level);
     NSString *levelId = PFN2AId(level);
     NSString *levelPath = [NSString stringWithFormat:@"levels/%@.json", levelId];
-
     NSDictionary *documentJSON = @{
         @"$schema": @"urn:pfhorge:schema:document:1",
         @"id": docId,
         @"kind": @"level",
         @"title": level.levelName ?: @"Untitled Level",
         @"levels": @[@{@"id":levelId, @"path":levelPath, @"name":level.levelName ?: @"Untitled Level"}],
-        @"extensions": @[PFN2AExtensionId],
-        @"metadata": @{@"writer": @"Pfhorge FORMAT-2A"},
+        @"extensions": @[PFN3BCanonicalAuthorityExtensionId],
+        @"metadata": @{@"writer":@"Pfhorge FORMAT-3B", @"canonicalModelRevision":@(PFN3BCanonicalModelRevision)},
     };
     NSData *documentData = PFN2AJSON(documentJSON, &error);
     if (!documentData) { if (outError) *outError = error; return nil; }
-
-    NSDictionary *ext = @{
-        @"id": PFN2AExtensionId,
-        @"version": @"1.0",
-        @"requiredForRead": @YES,
-        @"requiredForWrite": @YES,
-        @"resources": @[PFN2ABridgePath],
-    };
 
     NSDictionary *manifestJSON = @{
         @"$schema": @"urn:pfhorge:schema:manifest:1",
@@ -388,27 +397,37 @@ static NSData *PfhorgeNative2ACreatePackage(id document, LELevelData *level, NSE
         @"formatVersion": PFN2AFormatVersion,
         @"kind": @"level",
         @"document": @"document.json",
-        @"extensions": @[ext],
+        @"extensions": @[@{
+            @"id": PFN3BCanonicalAuthorityExtensionId,
+            @"version": @"1.0",
+            @"requiredForRead": @NO,
+            @"requiredForWrite": @NO,
+            @"resources": @[]
+        }],
         @"resources": @[
             @{@"path":@"document.json", @"mediaType":@"application/json",
               @"role":@"document", @"sha256":PFN2ASHA256(documentData)},
             @{@"path":levelPath, @"mediaType":@"application/json",
-              @"role":@"level-envelope", @"sha256":PFN2ASHA256(levelData)},
-            @{@"path":PFN2ABridgePath, @"mediaType":@"application/x-pfhorge-keyed-archive",
-              @"role":@"format2a-authoritative-bridge", @"sha256":PFN2ASHA256(bridge)},
+              @"role":@"canonical-level", @"sha256":PFN2ASHA256(levelData)},
         ],
     };
     NSData *manifestData = PFN2AJSON(manifestJSON, &error);
     if (!manifestData) { if (outError) *outError = error; return nil; }
 
     NSData *mime = [PFN2AMimeType dataUsingEncoding:NSASCIIStringEncoding];
-    return PFN2AWriteZip(@[
+    NSData *package = PFN2AWriteZip(@[
         @{@"name":@"mimetype", @"data":mime},
         @{@"name":@"manifest.json", @"data":manifestData},
         @{@"name":@"document.json", @"data":documentData},
         @{@"name":levelPath, @"data":levelData},
-        @{@"name":PFN2ABridgePath, @"data":bridge},
-    ], outError);
+    ], &error);
+    if (!package) { if (outError) *outError = error; return nil; }
+
+    if (!PFN3BValidateWrittenPackage(package, &error)) {
+        if (outError) *outError = error ?: PFN2AError(3341, @"Native package failed FORMAT-3B read-back validation.");
+        return nil;
+    }
+    return package;
 }
 
 static LELevelData *PfhorgeNative2ALoadLevel(NSData *data, id document, NSError **outError)
@@ -418,67 +437,64 @@ static LELevelData *PfhorgeNative2ALoadLevel(NSData *data, id document, NSError 
     if (!files) { if (outError) *outError = error; return nil; }
 
     NSString *mime = [[NSString alloc] initWithData:files[@"mimetype"] encoding:NSASCIIStringEncoding];
-    if (![mime isEqual:PFN2AMimeType]) {
-        if (outError) *outError = PFN2AError(2230, @"ZIP is not a Pfhorge Native document.");
+    if (![mime isEqualToString:PFN2AMimeType]) {
+        if (outError) *outError = PFN2AError(3350, @"ZIP is not a Pfhorge Native document.");
         return nil;
     }
-
-    NSDictionary *manifest = [NSJSONSerialization JSONObjectWithData:files[@"manifest.json"] ?: [NSData data]
-                                                              options:0 error:&error];
-    if (![manifest isKindOfClass:[NSDictionary class]] ||
-        ![manifest[@"format"] isEqual:@"org.pfhorge.native"] ||
-        ![manifest[@"kind"] isEqual:@"level"]) {
-        if (outError) *outError = error ?: PFN2AError(2231, @"Invalid Pfhorge Native manifest.");
+    NSDictionary *manifest = PFN3BParseJSONResource(files, @"manifest.json", &error);
+    if (![manifest[@"format"] isEqual:@"org.pfhorge.native"] || ![manifest[@"kind"] isEqual:@"level"]) {
+        if (outError) *outError = error ?: PFN2AError(3351, @"Invalid Pfhorge Native manifest.");
         return nil;
     }
+    if (!PFN3BVerifyManifestResources(manifest, files, &error)) {
+        if (outError) *outError = error; return nil;
+    }
 
-    BOOL hasBridgeDeclaration = NO;
+    BOOL bridgeDeclared = NO;
     for (NSDictionary *ext in manifest[@"extensions"] ?: @[]) {
-        if ([ext[@"id"] isEqual:PFN2AExtensionId] &&
-            [ext[@"requiredForRead"] boolValue] &&
-            [ext[@"resources"] containsObject:PFN2ABridgePath]) {
-            hasBridgeDeclaration = YES;
-            break;
+        if (![ext isKindOfClass:NSDictionary.class]) continue;
+        NSString *extId = ext[@"id"];
+        if ([extId isEqual:PFN2AExtensionId]) {
+            bridgeDeclared = [ext[@"resources"] containsObject:PFN2ABridgePath];
+            continue;
         }
-    }
-    if (!hasBridgeDeclaration) {
-        if (outError) *outError = PFN2AError(
-            2232, @"This package is not a FORMAT-2A snapshot-authority document. Direct canonical read arrives in FORMAT-2B.");
-        return nil;
-    }
-
-    NSData *bridge = files[PFN2ABridgePath];
-    if (!bridge) {
-        if (outError) *outError = PFN2AError(2233, @"Required FORMAT-2A bridge resource is missing.");
-        return nil;
-    }
-
-    // Verify every manifest resource hash before decoding the bridge.
-    for (NSDictionary *resource in manifest[@"resources"] ?: @[]) {
-        NSString *path = resource[@"path"];
-        NSString *expected = resource[@"sha256"];
-        NSData *resourceData = files[path];
-        if (!resourceData || ![PFN2ASHA256(resourceData) isEqual:expected]) {
-            if (outError) *outError = PFN2AError(2234, [NSString stringWithFormat:@"Resource hash mismatch: %@", path]);
+        if ([ext[@"requiredForRead"] boolValue]) {
+            if (outError) *outError = PFN2AError(3352, [NSString stringWithFormat:@"Unsupported required native extension: %@", extId ?: @"<unknown>"]);
             return nil;
         }
     }
 
-    LELevelData *level = [NSKeyedUnarchiver unarchivedObjectOfClass:[LELevelData class]
-                                                           fromData:bridge
-                                                              error:&error];
-    if (!level) {
-        if (outError) *outError = error ?: PFN2AError(2235, @"Could not decode FORMAT-2A bridge resource.");
-        return nil;
+    NSDictionary *documentJSON = PFN3BParseJSONResource(files, manifest[@"document"], &error);
+    if (!documentJSON) { if (outError) *outError = error; return nil; }
+    PFN2ASetId(document, documentJSON[@"id"]);
+    NSArray *levelRefs = [documentJSON[@"levels"] isKindOfClass:NSArray.class] ? documentJSON[@"levels"] : nil;
+    NSDictionary *levelRef = levelRefs.count && [levelRefs[0] isKindOfClass:NSDictionary.class] ? levelRefs[0] : nil;
+
+    // Backward-compatible migration path for FORMAT-2A / FORMAT-3A packages.
+    if (bridgeDeclared || files[PFN2ABridgePath]) {
+        NSData *bridge = files[PFN2ABridgePath];
+        if (!bridge) {
+            if (outError) *outError = PFN2AError(3353, @"Required historical bridge resource is missing.");
+            return nil;
+        }
+        LELevelData *level = [NSKeyedUnarchiver unarchivedObjectOfClass:[LELevelData class]
+                                                               fromData:bridge
+                                                                  error:&error];
+        if (!level) {
+            if (outError) *outError = error ?: PFN2AError(3354, @"Could not decode historical Pfhorge Native bridge resource.");
+            return nil;
+        }
+        PFN2ASetId(level, levelRef[@"id"]);
+        return level;
     }
 
-    NSString *documentPath = manifest[@"document"];
-    NSDictionary *documentJSON = [NSJSONSerialization JSONObjectWithData:files[documentPath] ?: [NSData data]
-                                                                  options:0 error:NULL];
-    PFN2ASetId(document, documentJSON[@"id"]);
-    NSArray *levelRefs = documentJSON[@"levels"];
-    if ([levelRefs isKindOfClass:[NSArray class]] && levelRefs.count)
-        PFN2ASetId(level, levelRefs[0][@"id"]);
-
+    NSString *levelPath = levelRef[@"path"];
+    NSDictionary *levelJSON = PFN3BParseJSONResource(files, levelPath, &error);
+    if (!levelJSON || !PFN3BValidateCanonicalLevelJSON(levelJSON, &error)) {
+        if (outError) *outError = error; return nil;
+    }
+    LELevelData *level = PFN3BLevelFromCanonicalJSON(levelJSON, &error);
+    if (!level) { if (outError) *outError = error; return nil; }
+    PFN2ASetId(level, levelRef[@"id"] ?: levelJSON[@"id"]);
     return level;
 }

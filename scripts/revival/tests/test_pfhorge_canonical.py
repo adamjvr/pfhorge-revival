@@ -16,8 +16,17 @@ class T(unittest.TestCase):
  def test_dangling_endpoint_rejected(self):
   d=self.load(); d['geometry']['lines'][0]['startPoint']='11111111-1111-4111-8111-111111111111'
   with self.assertRaises(pc.CanonicalError): pc.validate_level(d)
- def test_side_ownership_mismatch_rejected(self):
+ def test_side_hint_mismatch_is_allowed(self):
+  # FORMAT-3B authority lives on polygon.edges[*].side.  A side object's
+  # line/polygon fields are legacy compatibility hints and may be stale while
+  # still referring to valid canonical entities.
   d=self.load(); d['surfaces']['sides'][0]['line']=d['geometry']['lines'][1]['id']
+  self.assertIn('polygon',pc.validate_level(d))
+ def test_dangling_side_line_hint_rejected(self):
+  d=self.load(); d['surfaces']['sides'][0]['line']='11111111-1111-4111-8111-111111111111'
+  with self.assertRaises(pc.CanonicalError): pc.validate_level(d)
+ def test_dangling_edge_side_rejected(self):
+  d=self.load(); d['geometry']['polygons'][0]['edges'][0]['side']='22222222-2222-4222-8222-222222222222'
   with self.assertRaises(pc.CanonicalError): pc.validate_level(d)
  def test_floor_above_ceiling_rejected(self):
   d=self.load(); d['geometry']['polygons'][0]['floor']['height']=2000

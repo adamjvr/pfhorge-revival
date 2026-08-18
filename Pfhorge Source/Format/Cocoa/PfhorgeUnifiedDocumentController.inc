@@ -47,6 +47,19 @@ static OSType PFH3AHFSTypeForURL(NSURL *url)
         : (OSType)0;
 }
 
+static BOOL PFH3AIsGenericDataDocumentType(NSString *type)
+{
+    if (type.length == 0U) {
+        return NO;
+    }
+
+    // Extensionless classic Mac files commonly arrive from AppKit as a
+    // generic data type.  That classification must not short-circuit
+    // Pfhorge's Marathon resolver/parser, which is the real validator.
+    return [type isEqualToString:@"data"] ||
+           [type isEqualToString:@"public.data"];
+}
+
 @interface PfhorgeUnifiedDocumentController : NSDocumentController
 @end
 
@@ -87,6 +100,55 @@ static OSType PFH3AHFSTypeForURL(NSURL *url)
     return [super runModalOpenPanel:openPanel
                           forTypes:nil];
 #pragma clang diagnostic pop
+}
+
+- (NSDocument *)makeDocumentWithContentsOfURL:(NSURL *)url
+                                       ofType:(NSString *)typeName
+                                        error:(NSError * _Nullable *)outError
+{
+    if (![typeName isEqualToString:PFH3AMarathonMapType]) {
+        return [super makeDocumentWithContentsOfURL:url
+                                            ofType:typeName
+                                             error:outError];
+    }
+
+    // File -> Open on Marathon is an import operation.  Do not use the normal
+    // initWithContentsOfURL: path because that records the Marathon URL/type as
+    // this document's backing identity and later Save/Close/Quit machinery can
+    // try to write the foreign source format back to disk.
+    NSError *localError = nil;
+    NSDocument *document =
+        [self makeUntitledDocumentOfType:PFH3APfhorgeLevelType
+                                   error:&localError];
+
+    if (document == nil) {
+        if (outError != NULL) *outError = localError;
+        return nil;
+    }
+
+    if (![document readFromURL:url
+                        ofType:PFH3AMarathonMapType
+                         error:&localError]) {
+        if (outError != NULL) *outError = localError;
+        return nil;
+    }
+
+    // The object was born as an untitled Pfhorge Native document.  The source
+    // URL above is input/provenance only; it is not the document backing URL.
+    NSString *sourceName =
+        url.lastPathComponent.length ? url.lastPathComponent : @"Imported Level";
+    document.displayName =
+        [sourceName stringByAppendingPathExtension:@"pfhlev"];
+
+    [document updateChangeCount:NSChangeDone];
+
+    NSLog(@"FORMAT-3A detached Marathon import: source=%@ nativeType=%@ backingURL=%@ displayName=%@",
+          url.path,
+          document.fileType ?: @"(nil)",
+          document.fileURL.path ?: @"(none)",
+          document.displayName ?: @"(nil)");
+
+    return document;
 }
 
 - (NSString *)typeForContentsOfURL:(NSURL *)url
@@ -134,7 +196,10 @@ static OSType PFH3AHFSTypeForURL(NSURL *url)
     NSString *normalType =
         [super typeForContentsOfURL:url
                              error:&normalError];
-    if (normalType.length > 0U) {
+    // Keep useful AppKit classifications, but ignore its generic-data
+    // fallback so extensionless Marathon maps reach the importer.
+    if (normalType.length > 0U &&
+        !PFH3AIsGenericDataDocumentType(normalType)) {
         return normalType;
     }
 
@@ -147,6 +212,9 @@ static OSType PFH3AHFSTypeForURL(NSURL *url)
     if (exists && !isDirectory) {
         // The filename filter is not the source-format validator.
         // The Marathon resolver/parser gets the final say.
+        NSLog(@"FORMAT-3A unified open: routing generic type %@ as Marathon candidate: %@",
+              normalType.length > 0U ? normalType : @"(none)",
+              url.path);
         return PFH3AMarathonMapType;
     }
 

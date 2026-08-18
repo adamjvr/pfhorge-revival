@@ -224,23 +224,54 @@
 - (IBAction)saveToPfhorgeFormat:(id)sender
 {
     [self shouldExportToMarathonFile:NO];
-    
-    if ([self didIComeFromMarathonFormatedFile])
+
+    if ([self didIComeFromMarathonFormatedFile]) {
+        // FORMAT-3A normally creates Marathon imports as detached untitled
+        // native documents.  Keep this as a safety fallback for any older or
+        // alternate construction path that still carries a source URL.
+        if (self.fileURL != nil) {
+            NSLog(@"FORMAT-3A SAFETY: detaching Marathon source backing URL before native Save As: %@",
+                  self.fileURL.path);
+            self.fileURL = nil;
+            self.fileModificationDate = nil;
+        }
         [super saveDocumentAs:sender];
-    else
+    } else {
         [super saveDocument:sender];
+    }
 }
 
 - (BOOL)exportToMarathonFormatAtPath:(NSString *)fullPath
 {
-    NSData *tempData;
-    
-    tempData = [self dataOfType:@"org.bungie.source.map" error:NULL];
-    
-    return [[NSFileManager defaultManager] createFileAtPath:fullPath
-                                            contents:tempData
-                                          attributes:@{NSFileHFSCreatorCode: @((OSType)0x32362EB0), // '26.∞'
-                                                       NSFileHFSTypeCode: @((OSType)'sce2')}];
+    // Marathon output is export-only.  Merely receiving the Marathon type
+    // name from AppKit must never authorize a foreign-format document save.
+    BOOL previousExportState = shouldExportToMarathonFormat;
+    NSData *tempData = nil;
+    NSError *exportError = nil;
+
+    [self shouldExportToMarathonFile:YES];
+    @try {
+        tempData = [self dataOfType:@"org.bungie.source.map"
+                              error:&exportError];
+    }
+    @finally {
+        [self shouldExportToMarathonFile:previousExportState];
+    }
+
+    if (tempData == nil) {
+        NSLog(@"Marathon export failed for %@: %@",
+              fullPath,
+              exportError ?: @"(no NSError)");
+        return NO;
+    }
+
+    return [[NSFileManager defaultManager]
+        createFileAtPath:fullPath
+                contents:tempData
+              attributes:@{
+                  NSFileHFSCreatorCode: @((OSType)0x32362EB0), // '26.∞'
+                  NSFileHFSTypeCode: @((OSType)'sce2')
+              }];
 }
 
 // *********************** Info Window Managment ***********************
@@ -612,19 +643,33 @@
 
 - (NSData *)dataOfType:(NSString *)aType error:(NSError * _Nullable *)outError
 {
-    if (shouldExportToMarathonFormat == YES ||
-        [aType isEqualToString:@"org.bungie.source.map"]) {
-        return [LEMapData
-            convertLevelToDataObject:theLevel
-                               error:outError];
+    // Foreign-format serialization is explicit-export-only.  A stale AppKit
+    // document type must never turn Save/Close/Quit into a Marathon write.
+    if ([aType isEqualToString:@"org.bungie.source.map"] &&
+        shouldExportToMarathonFormat == NO) {
+        if (outError) {
+            *outError = [NSError
+                errorWithDomain:NSCocoaErrorDomain
+                           code:NSFileWriteUnknownError
+                       userInfo:@{
+                           NSLocalizedDescriptionKey:
+                               @"Pfhorge refused an implicit Marathon-format save.",
+                           NSLocalizedFailureReasonErrorKey:
+                               @"Marathon files are read/import sources. Use an explicit Marathon export command."
+                       }];
+        }
+        NSLog(@"FORMAT-3A SAFETY: refused implicit Marathon write request.");
+        return nil;
     }
 
-    // Legacy Pfhorge is read-only migration input.
+    if (shouldExportToMarathonFormat == YES) {
+        return [LEMapData convertLevelToDataObject:theLevel error:outError];
+    }
+
+    // Legacy Pfhorge is read-only migration input. All ordinary persistence is
+    // Pfhorge Native.
     NSData *nativePackage =
-        PfhorgeNative2ACreatePackage(
-            self,
-            theLevel,
-            outError);
+        PfhorgeNative2ACreatePackage(self, theLevel, outError);
 
     if (nativePackage != nil) {
         cameFromMarathonFormatedFile = NO;

@@ -59,6 +59,18 @@ def validate_level(level:Any)->dict[str,set[str]]:
             section_ids.add(ident); all_ids[ident]=f"terminal[{ti}].section[{si}]"
     ids['terminalSection']=section_ids
 
+    extensions=level.get('extensions',{})
+    authority=extensions.get('org.pfhorge.format3b.canonical-authority') if isinstance(extensions,dict) else None
+    try:
+        authority_revision=int(authority.get('canonicalModelRevision',0)) if isinstance(authority,dict) else 0
+    except (TypeError,ValueError):
+        authority_revision=0
+    format3b_authority=bool(
+        isinstance(authority,dict)
+        and authority.get('canonicalAuthority') is True
+        and authority_revision>=3
+    )
+
     def ref(v,kind,label,nullable=False):
         if v is None and nullable: return
         ident=_uuid(v,label)
@@ -66,14 +78,36 @@ def validate_level(level:Any)->dict[str,set[str]]:
     for i,p in enumerate(categories['line']):
         ref(p.get('startPoint'),'point',f"line[{i}].startPoint"); ref(p.get('endPoint'),'point',f"line[{i}].endPoint")
         if p.get('startPoint')==p.get('endPoint'): raise CanonicalError(f"line[{i}]: endpoints must differ")
+        if format3b_authority:
+            for key,kind in (
+                ('clockwisePolygon','polygon'),
+                ('counterclockwisePolygon','polygon'),
+                ('clockwiseSide','side'),
+                ('counterclockwiseSide','side'),
+            ):
+                if key not in p:
+                    raise CanonicalError(f"line[{i}].{key}: required by FORMAT-3B canonical authority")
+                ref(p.get(key),kind,f"line[{i}].{key}",True)
+    # FORMAT-3B authority rule:
+    #
+    # polygon.edges[*].side is the authoritative polygon-edge -> side
+    # relationship.  Classic Pfhorge/Marathon graphs may legally contain
+    # unreferenced side entities and may reference one side entity from more
+    # than one polygon edge.  The side object's legacy `line` / `polygon`
+    # fields are therefore compatibility hints, not canonical ownership.
+    #
+    # Validate those hint references for type/dangling errors, but do not
+    # require them to agree with every authoritative polygon-edge reference.
     side_by_id={s['id']:s for s in categories['side']}
     for i,s in enumerate(categories['side']):
-        ref(s.get('line'),'line',f"side[{i}].line"); ref(s.get('polygon'),'polygon',f"side[{i}].polygon")
+        ref(s.get('line'),'line',f"side[{i}].line")
+        ref(s.get('polygon'),'polygon',f"side[{i}].polygon")
         for lname in ('primary','secondary','transparent'):
             layer=s.get(lname)
             if layer is None: continue
             if not isinstance(layer,dict): raise CanonicalError(f"side[{i}].{lname}: object/null required")
             ref(layer.get('light'),'light',f"side[{i}].{lname}.light",True)
+    line_by_id={line['id']:line for line in categories['line']}
     for i,p in enumerate(categories['polygon']):
         floor=p.get('floor'); ceil=p.get('ceiling')
         if not isinstance(floor,dict) or not isinstance(ceil,dict): raise CanonicalError(f"polygon[{i}]: floor/ceiling objects required")
@@ -86,12 +120,23 @@ def validate_level(level:Any)->dict[str,set[str]]:
         for ei,e in enumerate(edges):
             if not isinstance(e,dict): raise CanonicalError(f"polygon[{i}].edges[{ei}]: object required")
             ref(e.get('line'),'line',f"polygon[{i}].edges[{ei}].line")
+            if format3b_authority:
+                line=line_by_id[e.get('line')]
+                pid=p['id']
+                clockwise=line.get('clockwisePolygon')
+                counterclockwise=line.get('counterclockwisePolygon')
+                matches=int(pid==clockwise)+int(pid==counterclockwise)
+                if matches!=1:
+                    raise CanonicalError(
+                        f"polygon[{i}].edges[{ei}]: polygon is not exactly one persisted line owner"
+                    )
             sid=e.get('side')
             if sid is not None:
+                # The edge reference itself is canonical authority.  A side's
+                # own polygon/line fields are legacy compatibility hints and
+                # may disagree in historical files without invalidating the
+                # canonical edge graph.
                 ref(sid,'side',f"polygon[{i}].edges[{ei}].side")
-                side=side_by_id[sid]
-                if side.get('polygon')!=p['id'] or side.get('line')!=e.get('line'):
-                    raise CanonicalError(f"polygon[{i}].edges[{ei}]: side ownership does not match polygon/line")
     for i,m in enumerate(categories['media']): ref(m.get('light'),'light',f"media[{i}].light",True)
     for i,p in enumerate(categories['platform']): ref(p.get('polygon'),'polygon',f"platform[{i}].polygon"); ref(p.get('tag'),'tag',f"platform[{i}].tag",True)
     for i,o in enumerate(categories['object']): ref(o.get('polygon'),'polygon',f"object[{i}].polygon",True)
